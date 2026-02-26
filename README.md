@@ -13,7 +13,10 @@ Colab-first, reproducible PyTorch Geometric project for multi-class prediction o
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
+# PyTDC 0.4.1 depends on `rdkit-pypi` (unavailable on macOS ARM); install without deps:
+python -m pip install --no-deps PyTDC==0.4.1
 ```
 
 Optional PyG wheels fallback (if your environment needs compiled deps):
@@ -94,4 +97,3 @@ Use `notebooks/colab_ddi_gat.py` as a Colab cell-style notebook (`# %%` cells). 
 ## Licensing Note
 
 This repository contains original project code. Dataset usage and redistribution are subject to TDC / DrugBank terms. RDKit, PyTorch, PyG, and other dependencies retain their respective licenses.
-

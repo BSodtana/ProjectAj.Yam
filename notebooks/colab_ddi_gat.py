@@ -19,8 +19,9 @@ def run(cmd, check=True):
 
 # %%
 # Install core dependencies (Colab-friendly).
-run([sys.executable, "-m", "pip", "install", "-q", "torch", "numpy", "pandas", "scikit-learn", "matplotlib", "tqdm"])
-run([sys.executable, "-m", "pip", "install", "-q", "tdc", "rdkit"])
+run([sys.executable, "-m", "pip", "install", "-q", "torch", "numpy", "pandas", "scikit-learn", "matplotlib", "tqdm", "requests", "seaborn", "fuzzywuzzy", "huggingface_hub"])
+run([sys.executable, "-m", "pip", "install", "-q", "rdkit"])
+run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "PyTDC==0.4.1"])
 pyg_ok = subprocess.run([sys.executable, "-c", "import torch_geometric"], capture_output=True)
 if pyg_ok.returncode != 0:
     run([sys.executable, "-m", "pip", "install", "-q", "torch_geometric"])
