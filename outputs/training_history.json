@@ -1,0 +1,81 @@
+{
+  "best_epoch": 10,
+  "best_metrics": {
+    "loss": 7.490784214671988,
+    "macro_pr_auc_ovr": 0.39051553715013465,
+    "macro_roc_auc_ovr": 0.817004488601439,
+    "n_samples": 12499
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 1.8418231672647263,
+      "valid_loss": 6.695699002592265,
+      "valid_macro_pr_auc_ovr": 0.08863235786333713,
+      "valid_macro_roc_auc_ovr": 0.7179662147348965
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.2783712729048102,
+      "valid_loss": 7.087565770673031,
+      "valid_macro_pr_auc_ovr": 0.23007233374471678,
+      "valid_macro_roc_auc_ovr": 0.7688672419806714
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.9946115076401228,
+      "valid_loss": 7.082086702777592,
+      "valid_macro_pr_auc_ovr": 0.303766762724324,
+      "valid_macro_roc_auc_ovr": 0.7881439185809374
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.8443215903972281,
+      "valid_loss": 6.917309819302451,
+      "valid_macro_pr_auc_ovr": 0.32560464204622996,
+      "valid_macro_roc_auc_ovr": 0.782695393313215
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.7463758637406425,
+      "valid_loss": 6.48524315386393,
+      "valid_macro_pr_auc_ovr": 0.34504775517328024,
+      "valid_macro_roc_auc_ovr": 0.7852432165399099
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.6745320215736028,
+      "valid_loss": 7.31252074636491,
+      "valid_macro_pr_auc_ovr": 0.3604917758636302,
+      "valid_macro_roc_auc_ovr": 0.8001207965446415
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.6241041125905595,
+      "valid_loss": 7.11418447750875,
+      "valid_macro_pr_auc_ovr": 0.34602674118135,
+      "valid_macro_roc_auc_ovr": 0.8006495485499026
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.5825584151527015,
+      "valid_loss": 6.765630903144065,
+      "valid_macro_pr_auc_ovr": 0.3646983231658697,
+      "valid_macro_roc_auc_ovr": 0.8025118193050971
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.551416647820965,
+      "valid_loss": 7.3392581434590936,
+      "valid_macro_pr_auc_ovr": 0.3788093888744019,
+      "valid_macro_roc_auc_ovr": 0.818501083115888
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.5278928385488443,
+      "valid_loss": 7.490784214671988,
+      "valid_macro_pr_auc_ovr": 0.39051553715013465,
+      "valid_macro_roc_auc_ovr": 0.817004488601439
+    }
+  ]
+}

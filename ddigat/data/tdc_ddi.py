@@ -122,6 +122,59 @@ def _load_saved_splits(split_dir: Path) -> Optional[Tuple[pd.DataFrame, pd.DataF
     return train_df[EXPECTED_COLS], valid_df[EXPECTED_COLS], test_df[EXPECTED_COLS]
 
 
+def _normalize_label_indexing(
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    label_map: dict,
+    split_dir: Optional[Path] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Ensure labels are zero-based class indices for torch cross-entropy.
+
+    TDC DrugBank DDI label ids can appear as 1..86. Internally we require 0..85.
+    """
+    frames = [train_df.copy(), valid_df.copy(), test_df.copy()]
+    all_y = pd.concat([f["y"] for f in frames], axis=0).astype(int)
+    y_min = int(all_y.min())
+    y_max = int(all_y.max())
+    num_classes = len(label_map)
+
+    # Already zero-based and within bounds.
+    if y_min == 0 and y_max <= num_classes - 1:
+        return frames[0], frames[1], frames[2], label_map
+
+    # Common TDC case: one-based labels 1..C.
+    if y_min >= 1 and y_max <= num_classes:
+        LOGGER.info(
+            "Converting labels from one-based to zero-based indexing (min=%d, max=%d, classes=%d)",
+            y_min,
+            y_max,
+            num_classes,
+        )
+        for f in frames:
+            f["y"] = f["y"].astype(int) - 1
+
+        shifted_label_map: dict = {}
+        for k, v in label_map.items():
+            try:
+                shifted_label_map[int(k) - 1] = v
+            except Exception:
+                shifted_label_map[k] = v
+        label_map = shifted_label_map
+
+        if split_dir is not None:
+            frames[0].to_csv(split_dir / "train.csv", index=False)
+            frames[1].to_csv(split_dir / "valid.csv", index=False)
+            frames[2].to_csv(split_dir / "test.csv", index=False)
+            save_json({str(k): str(v) for k, v in label_map.items()}, split_dir / "label_map.json")
+        return frames[0], frames[1], frames[2], label_map
+
+    raise ValueError(
+        f"Unexpected label range for {num_classes} classes: min={y_min}, max={y_max}. "
+        "Expected zero-based [0..C-1] or one-based [1..C]."
+    )
+
+
 def load_tdc_drugbank_ddi(
     data_dir: str,
     output_dir: str = "outputs",
@@ -136,17 +189,25 @@ def load_tdc_drugbank_ddi(
     except ImportError as e:  # pragma: no cover
         raise ImportError("Please install `tdc` to load the DrugBank DDI dataset.") from e
 
-    label_map = get_label_map(name="DrugBank", task="DDI")
-
     if saved is not None:
+        label_map = get_label_map(name="DrugBank", task="DDI", path=data_dir)
+        train_df, valid_df, test_df = saved
+        train_df, valid_df, test_df, label_map = _normalize_label_indexing(
+            train_df, valid_df, test_df, label_map, split_dir=split_dir
+        )
         LOGGER.info("Loaded persisted splits from %s", split_dir)
-        return (*saved, label_map)
+        return train_df, valid_df, test_df, label_map
 
     ensure_dir(data_dir)
     try:
         data = DDI(name="DrugBank", path=data_dir)
     except TypeError:
         data = DDI(name="DrugBank")
+    try:
+        label_map = get_label_map(name="DrugBank", task="DDI", path=data_dir)
+    except TypeError:
+        # Compatibility fallback for older signatures.
+        label_map = get_label_map(name="DrugBank", task="DDI")
 
     split = data.get_split()
     if not isinstance(split, dict):
@@ -168,6 +229,10 @@ def load_tdc_drugbank_ddi(
     valid_df = _normalize_split_df(valid_raw, id_to_smiles)
     test_df = _normalize_split_df(test_raw, id_to_smiles)
 
+    train_df, valid_df, test_df, label_map = _normalize_label_indexing(
+        train_df, valid_df, test_df, label_map, split_dir=None
+    )
+
     train_df.to_csv(split_dir / "train.csv", index=False)
     valid_df.to_csv(split_dir / "valid.csv", index=False)
     test_df.to_csv(split_dir / "test.csv", index=False)
@@ -181,4 +246,3 @@ def load_tdc_drugbank_ddi(
         len(test_df),
     )
     return train_df, valid_df, test_df, label_map
-
