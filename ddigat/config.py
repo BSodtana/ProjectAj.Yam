@@ -34,6 +34,11 @@ class TrainConfig:
     device: str = "cpu"
     limit: int | None = None
     use_class_weights: bool = False
+    class_weight_method: str = "inv_sqrt"
+    class_weight_beta: float = 0.9999
+    class_weight_clip_min: float = 0.25
+    class_weight_clip_max: float = 20.0
+    class_weight_eps: float = 1e-12
     label_smoothing: float = 0.0
     split_strategy: str = "cold_drug"
     split_seed: int = 42

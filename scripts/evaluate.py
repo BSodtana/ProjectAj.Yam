@@ -20,6 +20,7 @@ from ddigat.data.splits import DDIPairDataset, make_pair_dataloader, subsample_d
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.model.pair_model import DDIPairModel
 from ddigat.train.loop import eval_epoch
+from ddigat.utils.class_weights import assert_class_weight_sanity, compute_class_counts, compute_class_weights
 from ddigat.utils.calibration import apply_temperature, fit_temperature
 from ddigat.utils.io import torch_load
 from ddigat.utils.logging import get_logger
@@ -91,14 +92,6 @@ def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> 
     return model
 
 
-def compute_class_weights(y: np.ndarray, num_classes: int) -> torch.Tensor:
-    counts = np.bincount(y.astype(int), minlength=num_classes).astype(np.float64)
-    inv = 1.0 / np.sqrt(np.maximum(counts, 1.0))
-    inv = inv / np.mean(inv)
-    inv = np.clip(inv, 0.2, 5.0)
-    return torch.tensor(inv, dtype=torch.float32)
-
-
 def _to_float_dict(d: dict) -> dict:
     out = {}
     for k, v in d.items():
@@ -129,15 +122,37 @@ def main() -> None:
     cfg = payload.get("config", {}) or {}
     train_cfg = cfg.get("train", {}) if isinstance(cfg, dict) else {}
     use_class_weights = bool(train_cfg.get("use_class_weights", False))
+    class_weight_method = str(train_cfg.get("class_weight_method", "inv_sqrt"))
+    class_weight_beta = float(train_cfg.get("class_weight_beta", 0.9999))
+    class_weight_clip_min = float(train_cfg.get("class_weight_clip_min", 0.25))
+    class_weight_clip_max = float(train_cfg.get("class_weight_clip_max", 20.0))
+    class_weight_eps = float(train_cfg.get("class_weight_eps", 1e-12))
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
     if use_class_weights:
-        class_weights = compute_class_weights(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+        class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+        class_weight_info = compute_class_weights(
+            class_counts,
+            method=class_weight_method,
+            beta=class_weight_beta,
+            eps=class_weight_eps,
+            clip_min=class_weight_clip_min,
+            clip_max=class_weight_clip_max,
+        )
+        assert_class_weight_sanity(
+            class_weight_info.weights,
+            num_classes=model.num_classes,
+            clip_min=class_weight_clip_min,
+            clip_max=class_weight_clip_max,
+            mean_after_normalization=class_weight_info.mean_after_normalization,
+        )
+        class_weights = class_weight_info.weights
     else:
         class_weights = None
     model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
     LOGGER.info(
-        "Evaluation objective restored | use_class_weights=%s label_smoothing=%.4f",
+        "Evaluation objective restored | use_class_weights=%s method=%s label_smoothing=%.4f",
         use_class_weights,
+        class_weight_method,
         label_smoothing,
     )
 
@@ -163,12 +178,35 @@ def main() -> None:
         y_prob=test_eval["y_prob"],
         ece_bins=args.ece_bins,
     )
+    uncalibrated["macro_f1_present_only"] = float(uncalibrated["macro_f1"])
+    uncalibrated["kappa"] = float(uncalibrated["cohen_kappa"])
     uncalibrated["objective_loss"] = float(test_eval["objective_loss"])
     uncalibrated["nll_loss"] = float(test_eval["nll_loss"])
     uncalibrated["loss"] = float(test_eval["objective_loss"])
     LOGGER.info("Uncalibrated metrics: %s", _to_float_dict(uncalibrated))
 
-    out_payload: dict[str, object] = {"uncalibrated": _to_float_dict(uncalibrated)}
+    out_payload: dict[str, object] = {
+        "objective_config": {
+            "use_class_weights": use_class_weights,
+            "class_weight_method": class_weight_method,
+            "class_weight_beta": class_weight_beta,
+            "class_weight_clip_min": class_weight_clip_min,
+            "class_weight_clip_max": class_weight_clip_max,
+            "class_weight_eps": class_weight_eps,
+            "label_smoothing": label_smoothing,
+        },
+        "uncalibrated": _to_float_dict(uncalibrated),
+        "summary": {
+            "objective_loss": float(uncalibrated["objective_loss"]),
+            "nll_loss": float(uncalibrated["nll_loss"]),
+            "macro_f1": float(uncalibrated["macro_f1"]),
+            "micro_f1": float(uncalibrated["micro_f1"]),
+            "accuracy": float(uncalibrated["accuracy"]),
+            "kappa": float(uncalibrated["kappa"]),
+            "macro_pr_auc_ovr": float(uncalibrated["macro_pr_auc_ovr"]),
+            "macro_roc_auc_ovr": float(uncalibrated["macro_roc_auc_ovr"]),
+        },
+    }
 
     if args.calibrate_temperature:
         valid_ds = DDIPairDataset(valid_df, cache, split_name="valid")
@@ -193,6 +231,8 @@ def main() -> None:
             y_prob=calibrated_prob,
             ece_bins=args.ece_bins,
         )
+        calibrated["macro_f1_present_only"] = float(calibrated["macro_f1"])
+        calibrated["kappa"] = float(calibrated["cohen_kappa"])
         cal_logits_t = torch.tensor(calibrated_logits, dtype=torch.float32, device=device)
         y_t = torch.tensor(test_eval["y_true"], dtype=torch.long, device=device)
         calibrated["nll_loss"] = float(F.cross_entropy(cal_logits_t, y_t).item())

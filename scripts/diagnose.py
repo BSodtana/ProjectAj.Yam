@@ -27,6 +27,13 @@ from ddigat.explain.faithfulness import deletion_test, insertion_test
 from ddigat.model.pair_model import DDIPairModel
 from ddigat.train.loop import eval_epoch
 from ddigat.utils.calibration import apply_temperature, fit_temperature
+from ddigat.utils.class_weights import (
+    assert_class_weight_sanity,
+    class_counts_payload,
+    class_weights_payload,
+    compute_class_counts,
+    compute_class_weights,
+)
 from ddigat.utils.io import ensure_dir, save_json, torch_load
 from ddigat.utils.logging import get_logger
 from ddigat.utils.metrics import evaluate_multiclass_metrics
@@ -51,6 +58,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--random_baseline_repeats", type=int, default=5)
     p.add_argument("--randomization_steps", type=int, default=50)
     p.add_argument("--randomization_lr", type=float, default=1e-3)
+    p.add_argument("--use_class_weights", action="store_true")
+    p.add_argument("--class_weight_method", type=str, choices=["inv_sqrt", "effective_num"], default=None)
+    p.add_argument("--class_weight_beta", type=float, default=None)
+    p.add_argument("--class_weight_clip_min", type=float, default=None)
+    p.add_argument("--class_weight_clip_max", type=float, default=None)
+    p.add_argument("--label_smoothing", type=float, default=None)
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
@@ -97,29 +110,61 @@ def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> 
     return model
 
 
-def compute_class_weights(y: np.ndarray, num_classes: int) -> torch.Tensor:
-    counts = np.bincount(y.astype(int), minlength=num_classes).astype(np.float64)
-    inv = 1.0 / np.sqrt(np.maximum(counts, 1.0))
-    inv = inv / np.mean(inv)
-    inv = np.clip(inv, 0.2, 5.0)
-    return torch.tensor(inv, dtype=torch.float32)
-
-
 def restore_loss_params_from_checkpoint(
     model: DDIPairModel,
     payload: dict,
     train_df: pd.DataFrame,
+    args: argparse.Namespace,
 ) -> dict[str, Any]:
     cfg = payload.get("config", {}) or {}
     train_cfg = cfg.get("train", {}) if isinstance(cfg, dict) else {}
-    use_class_weights = bool(train_cfg.get("use_class_weights", False))
+    use_class_weights = bool(train_cfg.get("use_class_weights", False)) or bool(args.use_class_weights)
+    class_weight_method = str(train_cfg.get("class_weight_method", "inv_sqrt"))
+    if args.class_weight_method is not None:
+        class_weight_method = str(args.class_weight_method)
+    class_weight_beta = float(train_cfg.get("class_weight_beta", 0.9999))
+    if args.class_weight_beta is not None:
+        class_weight_beta = float(args.class_weight_beta)
+    class_weight_clip_min = float(train_cfg.get("class_weight_clip_min", 0.25))
+    if args.class_weight_clip_min is not None:
+        class_weight_clip_min = float(args.class_weight_clip_min)
+    class_weight_clip_max = float(train_cfg.get("class_weight_clip_max", 20.0))
+    if args.class_weight_clip_max is not None:
+        class_weight_clip_max = float(args.class_weight_clip_max)
+    class_weight_eps = float(train_cfg.get("class_weight_eps", 1e-12))
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
+    if args.label_smoothing is not None:
+        label_smoothing = float(args.label_smoothing)
+
+    class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+    class_weight_info = compute_class_weights(
+        class_counts,
+        method=class_weight_method,
+        beta=class_weight_beta,
+        eps=class_weight_eps,
+        clip_min=class_weight_clip_min,
+        clip_max=class_weight_clip_max,
+    )
+    assert_class_weight_sanity(
+        class_weight_info.weights,
+        num_classes=model.num_classes,
+        clip_min=class_weight_clip_min,
+        clip_max=class_weight_clip_max,
+        mean_after_normalization=class_weight_info.mean_after_normalization,
+    )
     class_weights = None
     if use_class_weights:
-        class_weights = compute_class_weights(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+        class_weights = class_weight_info.weights
     model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
     return {
         "use_class_weights": use_class_weights,
+        "class_weight_method": class_weight_method,
+        "class_weight_beta": class_weight_beta,
+        "class_weight_clip_min": class_weight_clip_min,
+        "class_weight_clip_max": class_weight_clip_max,
+        "class_weight_eps": class_weight_eps,
+        "class_counts": class_counts,
+        "class_weight_info": class_weight_info,
         "label_smoothing": label_smoothing,
         "class_weight_min": None if class_weights is None else float(class_weights.min().item()),
         "class_weight_max": None if class_weights is None else float(class_weights.max().item()),

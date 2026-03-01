@@ -19,6 +19,13 @@ from ddigat.data.splits import DDIPairDataset, make_pair_dataloader, subsample_d
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.model.pair_model import DDIPairModel
 from ddigat.train.loop import fit
+from ddigat.utils.class_weights import (
+    assert_class_weight_sanity,
+    class_counts_payload,
+    class_weights_payload,
+    compute_class_counts,
+    compute_class_weights,
+)
 from ddigat.utils.io import ensure_dir, save_json
 from ddigat.utils.logging import get_logger
 from ddigat.utils.seed import seed_everything
@@ -47,6 +54,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dropout", type=float, default=0.2)
     p.add_argument("--encoder_type", type=str, default="gat", choices=["gat", "gcn", "gin"])
     p.add_argument("--use_class_weights", action="store_true")
+    p.add_argument("--class_weight_method", type=str, default="inv_sqrt", choices=["inv_sqrt", "effective_num"])
+    p.add_argument("--class_weight_beta", type=float, default=0.9999)
+    p.add_argument("--class_weight_clip_min", type=float, default=0.25)
+    p.add_argument("--class_weight_clip_max", type=float, default=20.0)
     p.add_argument("--label_smoothing", type=float, default=0.0)
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
@@ -72,15 +83,6 @@ def resolve_device(device_arg: str) -> torch.device:
         )
         return torch.device("mps")
     return torch.device(device_arg)
-
-
-def compute_class_weights(y: np.ndarray, num_classes: int) -> torch.Tensor:
-    counts = np.bincount(y.astype(int), minlength=num_classes).astype(np.float64)
-    inv = 1.0 / np.sqrt(np.maximum(counts, 1.0))
-    # Normalize and clip to avoid extreme instability.
-    inv = inv / np.mean(inv)
-    inv = np.clip(inv, 0.2, 5.0)
-    return torch.tensor(inv, dtype=torch.float32)
 
 
 def main() -> None:
@@ -123,6 +125,10 @@ def main() -> None:
     cfg.train.limit = args.limit
     cfg.train.device = str(device)
     cfg.train.use_class_weights = bool(args.use_class_weights)
+    cfg.train.class_weight_method = str(args.class_weight_method)
+    cfg.train.class_weight_beta = float(args.class_weight_beta)
+    cfg.train.class_weight_clip_min = float(args.class_weight_clip_min)
+    cfg.train.class_weight_clip_max = float(args.class_weight_clip_max)
     cfg.train.label_smoothing = float(args.label_smoothing)
     cfg.train.split_strategy = str(args.split_strategy)
     cfg.train.split_seed = int(args.split_seed)
@@ -147,9 +153,47 @@ def main() -> None:
         num_classes=cfg.model.num_classes,
         pooling=cfg.model.pooling,
     ).to(device)
+    diagnostics_dir = ensure_dir(Path(args.output_dir) / "diagnostics")
+    class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
+    save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "class_counts.json")
+
+    class_weight_info = compute_class_weights(
+        class_counts,
+        method=str(args.class_weight_method),
+        beta=float(args.class_weight_beta),
+        eps=float(cfg.train.class_weight_eps),
+        clip_min=float(args.class_weight_clip_min),
+        clip_max=float(args.class_weight_clip_max),
+    )
+    assert_class_weight_sanity(
+        class_weight_info.weights,
+        num_classes=cfg.model.num_classes,
+        clip_min=float(args.class_weight_clip_min),
+        clip_max=float(args.class_weight_clip_max),
+        mean_after_normalization=float(class_weight_info.mean_after_normalization),
+    )
+    save_json(
+        class_weights_payload(
+            enabled=bool(args.use_class_weights),
+            method=str(args.class_weight_method),
+            beta=float(args.class_weight_beta),
+            eps=float(cfg.train.class_weight_eps),
+            clip_min=float(args.class_weight_clip_min),
+            clip_max=float(args.class_weight_clip_max),
+            computation=class_weight_info,
+        ),
+        diagnostics_dir / "class_weights.json",
+    )
+
     if args.use_class_weights:
-        class_weights = compute_class_weights(train_df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
-        LOGGER.info("Using class-weighted loss (min=%.4f, max=%.4f)", float(class_weights.min()), float(class_weights.max()))
+        class_weights = class_weight_info.weights
+        LOGGER.info(
+            "Using class-weighted loss | method=%s beta=%.6f min=%.4f max=%.4f",
+            args.class_weight_method,
+            float(args.class_weight_beta),
+            float(class_weights.min()),
+            float(class_weights.max()),
+        )
     else:
         class_weights = None
     model.set_loss_params(class_weights=class_weights, label_smoothing=float(args.label_smoothing))
