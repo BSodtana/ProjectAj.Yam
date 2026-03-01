@@ -133,20 +133,72 @@ def _aggregate_node_mask(node_mask: torch.Tensor) -> torch.Tensor:
     return v.cpu()
 
 
+@torch.no_grad()
+def _node_scores_from_edge_mask(edge_index: torch.Tensor, edge_mask: torch.Tensor, num_nodes: int) -> torch.Tensor:
+    if edge_mask.dim() != 1:
+        edge_values = edge_mask.detach().float().abs().view(-1)
+    else:
+        edge_values = edge_mask.detach().float().abs()
+    edge_index = edge_index.detach().cpu().long()
+    edge_values = edge_values.detach().cpu()
+    src = edge_index[0]
+    dst = edge_index[1]
+    scores = torch.zeros((num_nodes,), dtype=torch.float32)
+    scores.scatter_add_(0, src, edge_values)
+    scores.scatter_add_(0, dst, edge_values)
+    if scores.numel():
+        max_v = float(scores.max())
+        if max_v > 0:
+            scores = scores / max_v
+    return scores
+
+
 def run_gnnexplainer_on_graph(bundle: GNNExplainerBundle, graph: Data):
-    """Run the explainer on a single graph and return explanation + aggregated node mask."""
+    """Run explainer on a single graph.
+
+    Returns:
+        explanation, node_scores, edge_mask, status
+
+    status in {"ok", "edge_only_fallback", "no_node_mask", "failed"}.
+    """
     batch = torch.zeros(graph.x.size(0), dtype=torch.long, device=graph.x.device)
-    kwargs = {"x": graph.x, "edge_index": graph.edge_index, "batch": batch, "target": torch.tensor([bundle.target_class], device=graph.x.device)}
+    kwargs = {
+        "x": graph.x,
+        "edge_index": graph.edge_index,
+        "batch": batch,
+        "target": torch.tensor([bundle.target_class], device=graph.x.device),
+    }
     if getattr(graph, "edge_attr", None) is not None:
         kwargs["edge_attr"] = graph.edge_attr
 
     try:
         explanation = bundle.explainer(**kwargs)
     except TypeError:
-        # Compatibility fallback for older/newer signatures.
-        explanation = bundle.explainer(graph.x, graph.edge_index, target=kwargs["target"], batch=batch, edge_attr=kwargs.get("edge_attr"))
+        try:
+            explanation = bundle.explainer(
+                graph.x,
+                graph.edge_index,
+                target=kwargs["target"],
+                batch=batch,
+                edge_attr=kwargs.get("edge_attr"),
+            )
+        except Exception as e:  # pragma: no cover - PyG version/runtime specific
+            LOGGER.warning("GNNExplainer failed with fallback signature: %s", e)
+            return None, None, None, "failed"
+    except Exception as e:  # pragma: no cover - PyG version/runtime specific
+        LOGGER.warning("GNNExplainer failed: %s", e)
+        return None, None, None, "failed"
 
     node_mask = getattr(explanation, "node_mask", None)
     edge_mask = getattr(explanation, "edge_mask", None)
-    node_scores = _aggregate_node_mask(node_mask) if node_mask is not None else None
-    return explanation, node_scores, edge_mask
+    if node_mask is not None:
+        node_scores = _aggregate_node_mask(node_mask)
+        return explanation, node_scores, edge_mask, "ok"
+    if edge_mask is not None:
+        fallback = _node_scores_from_edge_mask(
+            edge_index=graph.edge_index,
+            edge_mask=edge_mask,
+            num_nodes=int(graph.x.size(0)),
+        )
+        return explanation, fallback, edge_mask, "edge_only_fallback"
+    return explanation, None, edge_mask, "no_node_mask"

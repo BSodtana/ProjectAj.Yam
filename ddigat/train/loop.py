@@ -5,11 +5,12 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 from ddigat.train.callbacks import EarlyStopping, save_checkpoint
 from ddigat.utils.logging import get_logger
-from ddigat.utils.metrics import multiclass_macro_pr_auc_ovr, multiclass_macro_roc_auc_ovr
+from ddigat.utils.metrics import evaluate_multiclass_metrics
 
 
 LOGGER = get_logger(__name__)
@@ -72,14 +73,17 @@ def eval_epoch(
     loader,
     device: torch.device,
     amp_enabled: bool = True,
+    collect_logits: bool = False,
 ) -> dict[str, Any]:
     model.eval()
     use_amp = bool(amp_enabled and device.type == "cuda")
 
-    total_loss = 0.0
+    total_objective_loss = 0.0
+    total_nll_loss = 0.0
     total_samples = 0
     y_true_all: list[np.ndarray] = []
     y_prob_all: list[np.ndarray] = []
+    y_logits_all: list[np.ndarray] = []
     pair_ids_all: list[str] = []
 
     pbar = tqdm(loader, desc="eval", leave=False)
@@ -89,14 +93,18 @@ def eval_epoch(
         batch = _move_batch_to_device(batch, device)
         with torch.cuda.amp.autocast(enabled=use_amp):
             logits = model(batch["graph_a"], batch["graph_b"])
-            loss = model.loss_fn(logits, batch["y"])
+            objective_loss = model.loss_fn(logits, batch["y"])
+            nll_loss = F.cross_entropy(logits, batch["y"], reduction="mean")
             probs = torch.softmax(logits, dim=-1)
 
         bs = int(batch["y"].size(0))
-        total_loss += float(loss.detach().item()) * bs
+        total_objective_loss += float(objective_loss.detach().item()) * bs
+        total_nll_loss += float(nll_loss.detach().item()) * bs
         total_samples += bs
         y_true_all.append(batch["y"].detach().cpu().numpy())
         y_prob_all.append(probs.detach().cpu().numpy())
+        if collect_logits:
+            y_logits_all.append(logits.detach().cpu().numpy())
         pair_ids_all.extend(batch["meta"]["pair_ids"])
 
     if total_samples == 0:
@@ -105,22 +113,17 @@ def eval_epoch(
     y_true = np.concatenate(y_true_all, axis=0)
     y_prob = np.concatenate(y_prob_all, axis=0)
     metrics: dict[str, Any] = {
-        "loss": total_loss / total_samples,
+        "loss": total_objective_loss / total_samples,
+        "objective_loss": total_objective_loss / total_samples,
+        "nll_loss": total_nll_loss / total_samples,
         "n_samples": total_samples,
         "y_true": y_true,
         "y_prob": y_prob,
         "pair_ids": pair_ids_all,
     }
-    try:
-        metrics["macro_roc_auc_ovr"] = multiclass_macro_roc_auc_ovr(y_true, y_prob)
-    except Exception as e:
-        LOGGER.warning("macro_roc_auc_ovr failed: %s", e)
-        metrics["macro_roc_auc_ovr"] = float("nan")
-    try:
-        metrics["macro_pr_auc_ovr"] = multiclass_macro_pr_auc_ovr(y_true, y_prob)
-    except Exception as e:
-        LOGGER.warning("macro_pr_auc_ovr failed: %s", e)
-        metrics["macro_pr_auc_ovr"] = float("nan")
+    if collect_logits:
+        metrics["y_logits"] = np.concatenate(y_logits_all, axis=0)
+    metrics.update(evaluate_multiclass_metrics(y_true=y_true, y_prob=y_prob))
     return metrics
 
 
@@ -170,11 +173,16 @@ def fit(
         }
         history.append(row)
         LOGGER.info(
-            "Epoch %d/%d | train_loss=%.4f valid_loss=%.4f valid_macro_pr_auc=%.4f valid_macro_roc_auc=%.4f",
+            "Epoch %d/%d | train_loss=%.4f valid_loss=%.4f valid_acc=%.4f valid_macro_f1=%.4f "
+            "valid_micro_f1=%.4f valid_kappa=%.4f valid_macro_pr_auc=%.4f valid_macro_roc_auc=%.4f",
             epoch,
             epochs,
             row["train_loss"],
             row["valid_loss"],
+            valid_metrics.get("accuracy", float("nan")),
+            valid_metrics.get("macro_f1", float("nan")),
+            valid_metrics.get("micro_f1", float("nan")),
+            valid_metrics.get("cohen_kappa", float("nan")),
             row["valid_macro_pr_auc_ovr"],
             row["valid_macro_roc_auc_ovr"],
         )
@@ -184,7 +192,7 @@ def fit(
             best_metrics = {
                 k: (v.tolist() if hasattr(v, "tolist") else v)
                 for k, v in valid_metrics.items()
-                if k not in {"y_true", "y_prob", "pair_ids"}
+                if k not in {"y_true", "y_prob", "y_logits", "pair_ids"}
             }
             best_epoch = epoch
             save_checkpoint(
@@ -208,4 +216,3 @@ def fit(
         "best_metrics": best_metrics or {},
         "checkpoint_path": str(checkpoint_path),
     }
-

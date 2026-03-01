@@ -1,0 +1,14 @@
+{
+  "eval_nll_loss": 6.297368351103259,
+  "eval_objective_loss": 6.297368351103259,
+  "loss_config": {
+    "class_weight_max": null,
+    "class_weight_min": null,
+    "label_smoothing": 0.0,
+    "use_class_weights": false
+  },
+  "manual_objective_loss_batch": 8.527183532714844,
+  "nll_loss_batch": 8.527183532714844,
+  "objective_abs_diff": 0.0,
+  "objective_loss_batch": 8.527183532714844
+}

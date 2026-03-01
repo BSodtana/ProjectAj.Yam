@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ddigat.model.gat_encoder import GATEncoder
+from ddigat.model.gnn_encoders import build_encoder
 
 
 class DDIPairModel(nn.Module):
@@ -16,6 +14,7 @@ class DDIPairModel(nn.Module):
         self,
         in_dim: int,
         edge_dim: int,
+        encoder_type: str = "gat",
         hidden_dim: int = 64,
         out_dim: int = 128,
         num_layers: int = 3,
@@ -26,7 +25,9 @@ class DDIPairModel(nn.Module):
         pooling: str = "mean",
     ) -> None:
         super().__init__()
-        self.encoder = GATEncoder(
+        self.encoder_type = encoder_type.lower().strip()
+        self.encoder = build_encoder(
+            encoder_type=self.encoder_type,
             in_dim=in_dim,
             edge_dim=edge_dim,
             hidden_dim=hidden_dim,
@@ -44,6 +45,8 @@ class DDIPairModel(nn.Module):
             nn.Linear(mlp_hidden_dim, num_classes),
         )
         self.num_classes = num_classes
+        self.label_smoothing = 0.0
+        self.class_weights: torch.Tensor | None = None
 
     @staticmethod
     def build_pair_features(h_a: torch.Tensor, h_b: torch.Tensor) -> torch.Tensor:
@@ -66,7 +69,24 @@ class DDIPairModel(nn.Module):
         logits = self.forward(graph_a, graph_b)
         return F.softmax(logits, dim=-1)
 
-    @staticmethod
-    def loss_fn(logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.cross_entropy(logits, y)
+    def set_loss_params(
+        self,
+        class_weights: torch.Tensor | None = None,
+        label_smoothing: float = 0.0,
+    ) -> None:
+        if class_weights is not None:
+            self.class_weights = class_weights.detach().float().clone()
+        else:
+            self.class_weights = None
+        self.label_smoothing = float(label_smoothing)
 
+    def loss_fn(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        weight = None
+        if self.class_weights is not None:
+            weight = self.class_weights.to(logits.device)
+        return F.cross_entropy(
+            logits,
+            y,
+            weight=weight,
+            label_smoothing=self.label_smoothing,
+        )

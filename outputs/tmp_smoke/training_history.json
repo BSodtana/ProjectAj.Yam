@@ -1,0 +1,24 @@
+{
+  "best_epoch": 1,
+  "best_metrics": {
+    "accuracy": 0.0,
+    "brier_score": 1.8421779870986938,
+    "cohen_kappa": 0.0,
+    "ece": 0.9147900397554098,
+    "loss": 9.391372848414598,
+    "macro_f1": 0.0,
+    "macro_pr_auc_ovr": 0.01736425060510375,
+    "macro_roc_auc_ovr": 0.45526113009795016,
+    "micro_f1": 0.0,
+    "n_samples": 7618
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 2.987051063776016,
+      "valid_loss": 9.391372848414598,
+      "valid_macro_pr_auc_ovr": 0.01736425060510375,
+      "valid_macro_roc_auc_ovr": 0.45526113009795016
+    }
+  ]
+}

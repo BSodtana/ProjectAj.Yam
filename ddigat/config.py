@@ -9,6 +9,7 @@ from typing import Any, Dict
 class ModelConfig:
     in_dim: int = 7
     edge_dim: int = 5
+    encoder_type: str = "gat"
     hidden_dim: int = 64
     out_dim: int = 128
     num_layers: int = 3
@@ -32,6 +33,10 @@ class TrainConfig:
     min_delta: float = 0.0
     device: str = "cpu"
     limit: int | None = None
+    use_class_weights: bool = False
+    label_smoothing: float = 0.0
+    split_strategy: str = "cold_drug"
+    split_seed: int = 42
 
 
 @dataclass
@@ -64,4 +69,3 @@ def default_project_config(
     train = TrainConfig(device=device)
     paths = PathConfig(data_dir=data_dir, output_dir=output_dir)
     return ProjectConfig(model=model, train=train, paths=paths)
-

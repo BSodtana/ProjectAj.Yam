@@ -7,6 +7,7 @@ Colab-first, reproducible PyTorch Geometric project for multi-class prediction o
 - Attention-based interpretability
 - Faithfulness checks (deletion/insertion)
 - PyG `GNNExplainer` baseline (single-graph contribution explanation with the other drug fixed)
+- Realistic split support with default cold-drug protocol (test drugs unseen in training)
 
 ## Quick Start (CLI)
 
@@ -51,13 +52,25 @@ python scripts/evaluate.py --data_dir ./data --output_dir ./outputs
 ```
 
 Prints:
+- Accuracy
+- Macro-F1 / Micro-F1
+- Cohen's kappa
 - Macro ROC-AUC (OvR)
 - Macro PR-AUC (OvR)
+- ECE / Brier score
+- Objective loss (training-consistent CE with configured class weights/label smoothing)
+- NLL loss (plain CE, no class weights / no label smoothing)
+
+Optional temperature scaling calibration report:
+
+```bash
+python scripts/evaluate.py --data_dir ./data --output_dir ./outputs --calibrate_temperature
+```
 
 ### 4) Explain examples
 
 ```bash
-python scripts/explain_examples.py --data_dir ./data --output_dir ./outputs --n 2
+python scripts/explain_examples.py --data_dir ./data --output_dir ./outputs --n 200
 ```
 
 Artifacts in:
@@ -67,6 +80,35 @@ Artifacts in:
 - `outputs/explanations/<pair_id>/faithfulness_B.png`
 - `outputs/explanations/<pair_id>/gnnexplainer_A.png`
 - `outputs/explanations/<pair_id>/gnnexplainer_B.png`
+- `outputs/explanations/explain_metrics_per_pair.csv`
+- `outputs/explanations/explain_metrics_summary.json`
+
+### 5) Run 3-seed ablation table
+
+```bash
+python scripts/run_ablations.py --data_dir ./data --output_dir ./outputs --seeds 42,43,44 --limit 50000 --epochs 10
+```
+
+Outputs:
+- `outputs/ablations/ablation_results_raw.csv`
+- `outputs/ablations/ablation_results_mean_std.csv`
+- `outputs/ablations/ablation_table.md`
+
+### 6) Run diagnostics mode
+
+```bash
+python scripts/diagnose.py --data_dir ./data --output_dir ./outputs --limit 2000 --seed 42
+```
+
+Outputs:
+- `outputs/diagnostics/labels_check.json`
+- `outputs/diagnostics/class_distribution.csv`
+- `outputs/diagnostics/loss_sanity.json`
+- `outputs/diagnostics/metrics_sanity.json`
+- `outputs/diagnostics/calibration_sanity.json`
+- `outputs/diagnostics/faithfulness_sanity.csv`
+- `outputs/diagnostics/randomization_sanity.json`
+- `outputs/diagnostics/diagnostic_summary.json`
 
 ## Colab
 

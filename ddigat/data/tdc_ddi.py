@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
-from ddigat.utils.io import ensure_dir, save_json
+from ddigat.utils.io import ensure_dir, load_json, save_json
 from ddigat.utils.logging import get_logger
 
 
@@ -122,6 +123,145 @@ def _load_saved_splits(split_dir: Path) -> Optional[Tuple[pd.DataFrame, pd.DataF
     return train_df[EXPECTED_COLS], valid_df[EXPECTED_COLS], test_df[EXPECTED_COLS]
 
 
+def _load_split_meta(split_dir: Path) -> dict:
+    p = split_dir / "meta.json"
+    if p.exists():
+        try:
+            return load_json(p)
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_split_meta(split_dir: Path, split_strategy: str, split_seed: int) -> None:
+    save_json(
+        {
+            "split_strategy": split_strategy,
+            "split_seed": int(split_seed),
+            "split_impl_version": 2,
+            "schema": EXPECTED_COLS,
+        },
+        split_dir / "meta.json",
+    )
+
+
+def _coerce_label_map_keys(label_map: dict) -> dict:
+    coerced: dict = {}
+    for k, v in label_map.items():
+        try:
+            coerced[int(k)] = v
+        except Exception:
+            coerced[k] = v
+    return coerced
+
+
+def _load_saved_label_map(split_dir: Path) -> Optional[dict]:
+    p = split_dir / "label_map.json"
+    if not p.exists():
+        return None
+    try:
+        return _coerce_label_map_keys(load_json(p))
+    except Exception as e:
+        LOGGER.warning("Failed loading persisted label map from %s: %s", p, e)
+        return None
+
+
+def _log_split_label_coverage(
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    num_classes: int,
+) -> None:
+    for split_name, df in [("train", train_df), ("valid", valid_df), ("test", test_df)]:
+        present = sorted(df["y"].astype(int).unique().tolist())
+        present_set = set(present)
+        missing = [c for c in range(num_classes) if c not in present_set]
+        LOGGER.info(
+            "%s label coverage | present=%d missing=%d",
+            split_name,
+            len(present),
+            len(missing),
+        )
+        if missing:
+            LOGGER.info("%s missing classes: %s", split_name, missing)
+
+
+def _make_cold_drug_split(
+    full_df: pd.DataFrame,
+    seed: int,
+    train_ratio: float = 0.7,
+    valid_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    trials: int = 20,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Build realistic cold-drug split: test drugs are unseen in training.
+
+    Strategy:
+      1) Split drugs into train-drug set and holdout-drug set.
+      2) Train pairs use only train-drug drugs (both sides in train set).
+      3) Holdout pairs use only holdout-drug drugs (both sides in holdout set).
+      4) Split holdout pairs into valid/test by pair-level random split.
+    """
+    if not np.isclose(train_ratio + valid_ratio + test_ratio, 1.0):
+        raise ValueError("Split ratios must sum to 1.")
+
+    drugs = sorted(set(full_df["drug_a_smiles"]).union(set(full_df["drug_b_smiles"])))
+    if len(drugs) < 10:
+        raise ValueError("Too few unique drugs for cold-drug split.")
+
+    n_total = len(drugs)
+    n_train = max(1, int(n_total * train_ratio))
+    n_holdout = max(1, n_total - n_train)
+
+    best = None
+    best_score = -1
+    rng = np.random.default_rng(seed)
+    drug_array = np.array(drugs, dtype=object)
+    for _ in range(trials):
+        perm = rng.permutation(n_total)
+        train_drugs = set(drug_array[perm[:n_train]].tolist())
+        holdout_drugs = set(drug_array[perm[n_train : n_train + n_holdout]].tolist())
+
+        train_mask = full_df["drug_a_smiles"].isin(train_drugs) & full_df["drug_b_smiles"].isin(train_drugs)
+        holdout_mask = full_df["drug_a_smiles"].isin(holdout_drugs) & full_df["drug_b_smiles"].isin(holdout_drugs)
+
+        train_df = full_df.loc[train_mask].copy()
+        holdout_df = full_df.loc[holdout_mask].copy()
+        score = len(train_df) + len(holdout_df)
+        if len(train_df) == 0 or len(holdout_df) < 2:
+            continue
+        if score > best_score:
+            best = (train_df, holdout_df)
+            best_score = score
+
+    if best is None:
+        raise RuntimeError("Unable to create non-empty cold-drug split.")
+    train_df, holdout_df = best
+    rng_pairs = np.random.default_rng(seed + 9973)
+    perm_pairs = rng_pairs.permutation(len(holdout_df))
+    valid_frac = valid_ratio / max(valid_ratio + test_ratio, 1e-8)
+    n_valid = int(len(holdout_df) * valid_frac)
+    n_valid = min(max(1, n_valid), len(holdout_df) - 1)
+    valid_idx = perm_pairs[:n_valid]
+    test_idx = perm_pairs[n_valid:]
+    valid_df = holdout_df.iloc[valid_idx].copy().reset_index(drop=True)
+    test_df = holdout_df.iloc[test_idx].copy().reset_index(drop=True)
+    train_df = train_df.reset_index(drop=True)
+    train_drug_set = set(train_df["drug_a_smiles"]).union(set(train_df["drug_b_smiles"]))
+    test_drug_set = set(test_df["drug_a_smiles"]).union(set(test_df["drug_b_smiles"]))
+    overlap = train_drug_set.intersection(test_drug_set)
+    if overlap:
+        raise RuntimeError(f"Cold-drug split invariant violated: {len(overlap)} test drugs also in train.")
+    LOGGER.info(
+        "Cold-drug split created | train=%d valid=%d test=%d (usable from full=%d)",
+        len(train_df),
+        len(valid_df),
+        len(test_df),
+        len(full_df),
+    )
+    return train_df, valid_df, test_df
+
+
 def _normalize_label_indexing(
     train_df: pd.DataFrame,
     valid_df: pd.DataFrame,
@@ -178,10 +318,21 @@ def _normalize_label_indexing(
 def load_tdc_drugbank_ddi(
     data_dir: str,
     output_dir: str = "outputs",
+    split_strategy: str = "cold_drug",
+    split_seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Load TDC DrugBank DDI splits and normalize to standard columns."""
+    """Load TDC DrugBank DDI splits and normalize to standard columns.
+
+    split_strategy:
+      - "cold_drug": disjoint drug sets across train/valid/test (recommended realistic split)
+      - "tdc": use TDC-provided split directly
+    """
     split_dir = ensure_dir(Path(output_dir) / "splits")
     saved = _load_saved_splits(split_dir)
+    meta = _load_split_meta(split_dir)
+    strategy = split_strategy.lower().strip()
+    if strategy not in {"cold_drug", "tdc"}:
+        raise ValueError(f"Unsupported split_strategy={split_strategy}. Expected one of: cold_drug, tdc")
 
     try:
         from tdc.multi_pred import DDI
@@ -189,13 +340,21 @@ def load_tdc_drugbank_ddi(
     except ImportError as e:  # pragma: no cover
         raise ImportError("Please install `tdc` to load the DrugBank DDI dataset.") from e
 
-    if saved is not None:
-        label_map = get_label_map(name="DrugBank", task="DDI", path=data_dir)
+    if (
+        saved is not None
+        and meta.get("split_strategy") == strategy
+        and int(meta.get("split_seed", split_seed)) == int(split_seed)
+        and int(meta.get("split_impl_version", 0)) == 2
+    ):
+        label_map = _load_saved_label_map(split_dir)
+        if label_map is None:
+            label_map = get_label_map(name="DrugBank", task="DDI", path=data_dir)
         train_df, valid_df, test_df = saved
         train_df, valid_df, test_df, label_map = _normalize_label_indexing(
             train_df, valid_df, test_df, label_map, split_dir=split_dir
         )
-        LOGGER.info("Loaded persisted splits from %s", split_dir)
+        _log_split_label_coverage(train_df, valid_df, test_df, num_classes=len(label_map))
+        LOGGER.info("Loaded persisted %s splits from %s", strategy, split_dir)
         return train_df, valid_df, test_df, label_map
 
     ensure_dir(data_dir)
@@ -229,6 +388,10 @@ def load_tdc_drugbank_ddi(
     valid_df = _normalize_split_df(valid_raw, id_to_smiles)
     test_df = _normalize_split_df(test_raw, id_to_smiles)
 
+    if strategy == "cold_drug":
+        full_df = pd.concat([train_df, valid_df, test_df], axis=0, ignore_index=True).drop_duplicates()
+        train_df, valid_df, test_df = _make_cold_drug_split(full_df=full_df, seed=split_seed)
+
     train_df, valid_df, test_df, label_map = _normalize_label_indexing(
         train_df, valid_df, test_df, label_map, split_dir=None
     )
@@ -237,9 +400,12 @@ def load_tdc_drugbank_ddi(
     valid_df.to_csv(split_dir / "valid.csv", index=False)
     test_df.to_csv(split_dir / "test.csv", index=False)
     save_json({str(k): str(v) for k, v in label_map.items()}, split_dir / "label_map.json")
+    _save_split_meta(split_dir=split_dir, split_strategy=strategy, split_seed=split_seed)
+    _log_split_label_coverage(train_df, valid_df, test_df, num_classes=len(label_map))
 
     LOGGER.info(
-        "Saved normalized splits to %s | train=%d valid=%d test=%d",
+        "Saved normalized %s splits to %s | train=%d valid=%d test=%d",
+        strategy,
         split_dir,
         len(train_df),
         len(valid_df),

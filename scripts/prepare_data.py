@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ddigat.data.cache import GraphCache
+from ddigat.data.splits import subsample_dataframe
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.utils.logging import get_logger
 from ddigat.utils.seed import seed_everything
@@ -30,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3)  # kept for interface consistency
     p.add_argument("--device", type=str, default="cpu")  # kept for interface consistency
     p.add_argument("--limit", type=int, default=None, help="Limit rows per split for smoke tests.")
+    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
+    p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
 
 
@@ -37,11 +40,16 @@ def main() -> None:
     args = parse_args()
     seed_everything(args.seed)
 
-    train_df, valid_df, test_df, label_map = load_tdc_drugbank_ddi(args.data_dir, output_dir=args.output_dir)
+    train_df, valid_df, test_df, label_map = load_tdc_drugbank_ddi(
+        args.data_dir,
+        output_dir=args.output_dir,
+        split_strategy=args.split_strategy,
+        split_seed=args.split_seed,
+    )
     if args.limit is not None:
-        train_df = train_df.head(args.limit).copy()
-        valid_df = valid_df.head(args.limit).copy()
-        test_df = test_df.head(args.limit).copy()
+        train_df = subsample_dataframe(train_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)
+        valid_df = subsample_dataframe(valid_df, limit=args.limit, seed=args.seed + 1, label_col="y", ensure_class_coverage=True)
+        test_df = subsample_dataframe(test_df, limit=args.limit, seed=args.seed + 2, label_col="y", ensure_class_coverage=True)
 
     all_smiles = pd.concat(
         [train_df["drug_a_smiles"], train_df["drug_b_smiles"], valid_df["drug_a_smiles"], valid_df["drug_b_smiles"], test_df["drug_a_smiles"], test_df["drug_b_smiles"]],

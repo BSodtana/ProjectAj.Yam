@@ -1,0 +1,20 @@
+{
+  "collapse_checks": {
+    "label_permutation_faithfulness_collapse": true,
+    "label_permutation_similarity_collapse": false,
+    "weight_randomization_faithfulness_collapse": true,
+    "weight_randomization_similarity_collapse": true
+  },
+  "means": {
+    "delta_del_base": 0.025625941544216845,
+    "delta_del_label_permuted": 0.0016873577188002864,
+    "delta_del_weight_randomized": 2.4771566106418724e-06,
+    "delta_ins_base": 0.009016153158603999,
+    "delta_ins_label_permuted": -0.0008896931437461078,
+    "delta_ins_weight_randomized": 2.1330942989871477e-06,
+    "random_baseline_unique_ratio": 0.99,
+    "rank_jaccard_label_permuted": 0.5666393655364244,
+    "rank_jaccard_weight_randomized": 0.4228824076250547
+  },
+  "n_rows": 80
+}
