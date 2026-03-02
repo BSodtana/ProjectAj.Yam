@@ -1,0 +1,11 @@
+{
+  "split_dir": "outputs/splits",
+  "files": {
+    "train.csv": "b30fd241edd03b779769e147d61d1165d9ba69792638b7372fee96375acf0962",
+    "valid.csv": "df74d11ab065c60400e92cdc3f1db292314cf7f0c4679547f9f29f3d7fd6427f",
+    "test.csv": "1ec3e7478b32c7751aad141de54bf13e72ef21e4db265aa53250e3d5d7bbbbe9",
+    "label_map.json": "d09ee95afd955c5264eeffd2086cd6c4e4ce62bfb8a01d3c003a278645b00d43",
+    "meta.json": "53257587ac14bd1e6159850c5913619485ef83abaee93e23c623b142ed6ff026"
+  },
+  "splits_hash_sha256": "0a3f793471c8623068b750b228935bd5d8d0d973f4f0bc84b095a8d1cf6daad5"
+}

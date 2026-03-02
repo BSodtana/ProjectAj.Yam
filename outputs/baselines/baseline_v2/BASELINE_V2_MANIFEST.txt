@@ -1,0 +1,8 @@
+Baseline v2 freeze bundle
+- checkpoint: checkpoint_best.pt
+- config: checkpoint_config.json
+- objective: objective_config.json
+- metrics: evaluation_metrics.json
+- metrics_diagnostics: metrics_sanity.json
+- diagnostics_summary: diagnostic_summary.json
+- splits hash: splits_hash.json
