@@ -96,6 +96,9 @@ def eval_epoch(
             objective_loss = model.loss_fn(logits, batch["y"])
             nll_loss = F.cross_entropy(logits, batch["y"], reduction="mean")
             probs = torch.softmax(logits, dim=-1)
+        row_sum_err = float(torch.max(torch.abs(probs.sum(dim=-1) - 1.0)).item())
+        if row_sum_err > 1e-5:
+            raise AssertionError(f"Softmax rows must sum to ~1.0, max_abs_err={row_sum_err:.6e}")
 
         bs = int(batch["y"].size(0))
         total_objective_loss += float(objective_loss.detach().item()) * bs

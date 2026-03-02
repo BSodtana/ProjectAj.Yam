@@ -132,11 +132,15 @@ def restore_loss_params_from_checkpoint(
     if args.class_weight_clip_max is not None:
         class_weight_clip_max = float(args.class_weight_clip_max)
     class_weight_eps = float(train_cfg.get("class_weight_eps", 1e-12))
+    class_counts_cfg = train_cfg.get("class_counts", None)
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
     if args.label_smoothing is not None:
         label_smoothing = float(args.label_smoothing)
 
-    class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+    if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
+        class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
+    else:
+        class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
     class_weight_info = compute_class_weights(
         class_counts,
         method=class_weight_method,
@@ -156,18 +160,24 @@ def restore_loss_params_from_checkpoint(
     if use_class_weights:
         class_weights = class_weight_info.weights
     model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
-    return {
+    serializable_cfg = {
         "use_class_weights": use_class_weights,
         "class_weight_method": class_weight_method,
         "class_weight_beta": class_weight_beta,
         "class_weight_clip_min": class_weight_clip_min,
         "class_weight_clip_max": class_weight_clip_max,
         "class_weight_eps": class_weight_eps,
-        "class_counts": class_counts,
-        "class_weight_info": class_weight_info,
         "label_smoothing": label_smoothing,
         "class_weight_min": None if class_weights is None else float(class_weights.min().item()),
         "class_weight_max": None if class_weights is None else float(class_weights.max().item()),
+    }
+    serializable_cfg["class_counts"] = [int(v) for v in class_counts.tolist()]
+    serializable_cfg["mean_after_normalization"] = float(class_weight_info.mean_after_normalization)
+    serializable_cfg["mean_after_clipping"] = float(class_weight_info.mean_after_clipping)
+    return {
+        **serializable_cfg,
+        "class_counts_np": class_counts,
+        "class_weight_info_obj": class_weight_info,
     }
 
 
@@ -377,8 +387,24 @@ def main() -> None:
         valid_df = subsample_dataframe(valid_df, limit=args.limit, seed=args.seed + 1, label_col="y", ensure_class_coverage=True)
         test_df = subsample_dataframe(test_df, limit=args.limit, seed=args.seed + 2, label_col="y", ensure_class_coverage=True)
 
-    loss_cfg = restore_loss_params_from_checkpoint(model, payload, train_df=train_df)
+    loss_cfg = restore_loss_params_from_checkpoint(model, payload, train_df=train_df, args=args)
     LOGGER.info("Restored eval objective: %s", loss_cfg)
+    save_json(
+        class_counts_payload(loss_cfg["class_counts_np"], num_classes=model.num_classes),
+        diagnostics_dir / "class_counts.json",
+    )
+    save_json(
+        class_weights_payload(
+            enabled=bool(loss_cfg["use_class_weights"]),
+            method=str(loss_cfg["class_weight_method"]),
+            beta=float(loss_cfg["class_weight_beta"]),
+            eps=float(loss_cfg["class_weight_eps"]),
+            clip_min=float(loss_cfg["class_weight_clip_min"]),
+            clip_max=float(loss_cfg["class_weight_clip_max"]),
+            computation=loss_cfg["class_weight_info_obj"],
+        ),
+        diagnostics_dir / "class_weights.json",
+    )
 
     labels_check = _label_checks(train_df, valid_df, test_df, num_classes=len(label_map))
     save_json(labels_check, diagnostics_dir / "labels_check.json")
@@ -419,6 +445,8 @@ def main() -> None:
         ece_bins=args.ece_bins,
         include_ovr_details=True,
     )
+    metric_report["macro_f1_present_only"] = float(metric_report["macro_f1"])
+    metric_report["kappa"] = float(metric_report["cohen_kappa"])
     metric_report["objective_loss"] = float(test_eval["objective_loss"])
     metric_report["nll_loss"] = float(test_eval["nll_loss"])
 
@@ -437,6 +465,10 @@ def main() -> None:
         "row_sum_std": float(np.std(prob_row_sum)),
         "row_sum_max_abs_err": float(np.max(np.abs(prob_row_sum - 1.0))),
     }
+    if prob_checks["row_sum_max_abs_err"] > 1e-5:
+        raise AssertionError(
+            f"Softmax probability rows do not sum to ~1 (max_abs_err={prob_checks['row_sum_max_abs_err']:.6e})"
+        )
 
     metrics_sanity = {
         "reported": metric_report,
@@ -445,12 +477,16 @@ def main() -> None:
     }
     save_json(metrics_sanity, diagnostics_dir / "metrics_sanity.json")
 
-    # Loss sanity on a single concrete batch.
+    # Loss sanity on a concrete batch with class diversity when possible.
     first_batch = None
     for batch in test_loader:
-        if batch is not None:
+        if batch is None:
+            continue
+        if batch["y"].numel() > 1 and int(torch.unique(batch["y"]).numel()) > 1:
             first_batch = batch
             break
+        if first_batch is None:
+            first_batch = batch
     if first_batch is None:
         raise RuntimeError("No valid batch available for loss sanity check")
     first_batch = _move_batch_to_device(first_batch, device)
@@ -477,10 +513,24 @@ def main() -> None:
         "manual_objective_loss_batch": float(manual_objective.item()),
         "objective_abs_diff": float(abs(objective_loss.item() - manual_objective.item())),
         "nll_loss_batch": float(nll_loss.item()),
+        "objective_minus_nll_batch": float(objective_loss.item() - nll_loss.item()),
         "eval_objective_loss": float(test_eval["objective_loss"]),
         "eval_nll_loss": float(test_eval["nll_loss"]),
-        "loss_config": loss_cfg,
+        "loss_config": {k: v for k, v in loss_cfg.items() if k not in {"class_counts_np", "class_weight_info_obj"}},
     }
+    if loss_sanity["objective_abs_diff"] > 1e-7:
+        raise AssertionError(
+            f"model.loss_fn mismatch vs manual cross_entropy: abs_diff={loss_sanity['objective_abs_diff']:.6e}"
+        )
+    if loss_cfg["use_class_weights"] or float(loss_cfg["label_smoothing"]) > 0.0:
+        if abs(loss_sanity["objective_minus_nll_batch"]) <= 1e-8:
+            raise AssertionError("Expected objective_loss != nll_loss when class weights or label smoothing are enabled")
+    LOGGER.info(
+        "Loss sanity | objective=%.6f nll=%.6f delta=%.6f",
+        loss_sanity["objective_loss_batch"],
+        loss_sanity["nll_loss_batch"],
+        loss_sanity["objective_minus_nll_batch"],
+    )
     save_json(loss_sanity, diagnostics_dir / "loss_sanity.json")
 
     # Calibration sanity.
@@ -680,6 +730,7 @@ def main() -> None:
             "accuracy": float(metric_report["accuracy"]),
             "macro_f1": float(metric_report["macro_f1"]),
             "micro_f1": float(metric_report["micro_f1"]),
+            "kappa": float(metric_report["kappa"]),
             "cohen_kappa": float(metric_report["cohen_kappa"]),
             "macro_roc_auc_ovr": float(metric_report["macro_roc_auc_ovr"]),
             "macro_pr_auc_ovr": float(metric_report["macro_pr_auc_ovr"]),
@@ -696,6 +747,8 @@ def main() -> None:
     save_json(diagnostic_summary, diagnostics_dir / "diagnostic_summary.json")
 
     print(f"diagnostics_dir={diagnostics_dir}")
+    print(f"class_counts={diagnostics_dir / 'class_counts.json'}")
+    print(f"class_weights={diagnostics_dir / 'class_weights.json'}")
     print(f"labels_check={diagnostics_dir / 'labels_check.json'}")
     print(f"class_distribution={diagnostics_dir / 'class_distribution.csv'}")
     print(f"loss_sanity={diagnostics_dir / 'loss_sanity.json'}")

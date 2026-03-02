@@ -42,6 +42,34 @@ python scripts/prepare_data.py --data_dir ./data --output_dir ./outputs --limit 
 python scripts/train.py --data_dir ./data --output_dir ./outputs --limit 2000 --epochs 1
 ```
 
+Class-imbalance objective options (CLIPPED weighted CE):
+
+```bash
+# Baseline objective (unweighted CE)
+python scripts/train.py --data_dir ./data --output_dir ./outputs
+
+# Inverse-sqrt frequency weights + clipping
+python scripts/train.py --data_dir ./data --output_dir ./outputs \
+  --use_class_weights \
+  --class_weight_method inv_sqrt \
+  --class_weight_clip_min 0.25 \
+  --class_weight_clip_max 20.0
+
+# Class-balanced effective-number weights (Cui et al., CVPR 2019) + clipping
+python scripts/train.py --data_dir ./data --output_dir ./outputs \
+  --use_class_weights \
+  --class_weight_method effective_num \
+  --class_weight_beta 0.9999 \
+  --class_weight_clip_min 0.25 \
+  --class_weight_clip_max 20.0
+```
+
+Implementation note:
+- Uses PyTorch `cross_entropy` / `CrossEntropyLoss` semantics with `weight=` and `label_smoothing=`.
+- With `reduction="mean"`, weighted CE follows PyTorch’s weight-normalized mean behavior.
+- Effective-number weighting follows Cui et al. (2019), then mean-normalization and clipping.
+- Future option (not implemented): logit adjustment (Menon et al., 2020).
+
 Expected checkpoint:
 - `outputs/checkpoints/best.pt`
 
@@ -98,9 +126,17 @@ Outputs:
 
 ```bash
 python scripts/diagnose.py --data_dir ./data --output_dir ./outputs --limit 2000 --seed 42
+
+# Weighted objective sanity run
+python scripts/diagnose.py --data_dir ./data --output_dir ./outputs --limit 2000 --seed 42 \
+  --use_class_weights \
+  --class_weight_method inv_sqrt \
+  --class_weight_clip_max 20
 ```
 
 Outputs:
+- `outputs/diagnostics/class_counts.json`
+- `outputs/diagnostics/class_weights.json`
 - `outputs/diagnostics/labels_check.json`
 - `outputs/diagnostics/class_distribution.csv`
 - `outputs/diagnostics/loss_sanity.json`

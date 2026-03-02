@@ -39,6 +39,7 @@ class TrainConfig:
     class_weight_clip_min: float = 0.25
     class_weight_clip_max: float = 20.0
     class_weight_eps: float = 1e-12
+    class_counts: list[int] | None = None
     label_smoothing: float = 0.0
     split_strategy: str = "cold_drug"
     split_seed: int = 42

@@ -127,9 +127,13 @@ def main() -> None:
     class_weight_clip_min = float(train_cfg.get("class_weight_clip_min", 0.25))
     class_weight_clip_max = float(train_cfg.get("class_weight_clip_max", 20.0))
     class_weight_eps = float(train_cfg.get("class_weight_eps", 1e-12))
+    class_counts_cfg = train_cfg.get("class_counts", None)
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
     if use_class_weights:
-        class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+        if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
+            class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
+        else:
+            class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
         class_weight_info = compute_class_weights(
             class_counts,
             method=class_weight_method,

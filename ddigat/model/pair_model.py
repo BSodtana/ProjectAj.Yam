@@ -75,7 +75,14 @@ class DDIPairModel(nn.Module):
         label_smoothing: float = 0.0,
     ) -> None:
         if class_weights is not None:
-            self.class_weights = class_weights.detach().float().clone()
+            w = class_weights.detach().float().clone().reshape(-1)
+            if int(w.numel()) != int(self.num_classes):
+                raise ValueError(f"class_weights must have shape ({self.num_classes},), got {tuple(w.shape)}")
+            if not torch.isfinite(w).all().item():
+                raise ValueError("class_weights contains non-finite values")
+            if not bool((w > 0).all().item()):
+                raise ValueError("class_weights must be strictly positive")
+            self.class_weights = w
         else:
             self.class_weights = None
         self.label_smoothing = float(label_smoothing)

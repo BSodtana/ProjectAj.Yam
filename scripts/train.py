@@ -6,7 +6,6 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -155,6 +154,7 @@ def main() -> None:
     ).to(device)
     diagnostics_dir = ensure_dir(Path(args.output_dir) / "diagnostics")
     class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
+    cfg.train.class_counts = [int(v) for v in class_counts.tolist()]
     save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "class_counts.json")
 
     class_weight_info = compute_class_weights(
