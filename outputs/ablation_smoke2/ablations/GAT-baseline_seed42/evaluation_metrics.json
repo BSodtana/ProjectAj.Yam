@@ -1,0 +1,37 @@
+{
+  "objective_config": {
+    "use_class_weights": false,
+    "class_weight_method": "inv_sqrt",
+    "class_weight_beta": 0.9999,
+    "class_weight_clip_min": 0.25,
+    "class_weight_clip_max": 20.0,
+    "class_weight_eps": 1e-12,
+    "label_smoothing": 0.0
+  },
+  "uncalibrated": {
+    "accuracy": 0.2943955899724373,
+    "macro_f1": 0.006998112412835593,
+    "micro_f1": 0.2943955899724373,
+    "cohen_kappa": 0.0,
+    "brier_score": 0.9852820634841919,
+    "ece": 0.2790531411343822,
+    "nll": 4.336071968078613,
+    "macro_roc_auc_ovr": 0.5082905215631448,
+    "macro_pr_auc_ovr": 0.0202374218262551,
+    "macro_f1_present_only": 0.006998112412835593,
+    "kappa": 0.0,
+    "objective_loss": 4.336071933781886,
+    "nll_loss": 4.336071933781886,
+    "loss": 4.336071933781886
+  },
+  "summary": {
+    "objective_loss": 4.336071933781886,
+    "nll_loss": 4.336071933781886,
+    "macro_f1": 0.006998112412835593,
+    "micro_f1": 0.2943955899724373,
+    "accuracy": 0.2943955899724373,
+    "kappa": 0.0,
+    "macro_pr_auc_ovr": 0.0202374218262551,
+    "macro_roc_auc_ovr": 0.5082905215631448
+  }
+}

@@ -46,6 +46,7 @@ def save_checkpoint(
     epoch: Optional[int] = None,
     metrics: Optional[dict[str, Any]] = None,
     config: Optional[dict[str, Any]] = None,
+    loss_config: Optional[dict[str, Any]] = None,
     label_map: Optional[dict[str, Any]] = None,
 ) -> None:
     path = Path(path)
@@ -56,7 +57,7 @@ def save_checkpoint(
         "epoch": epoch,
         "metrics": metrics or {},
         "config": config or {},
+        "loss_config": loss_config or {},
         "label_map": label_map or {},
     }
     torch_save(payload, path)
-

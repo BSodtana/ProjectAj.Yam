@@ -20,7 +20,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--weight_decay", type=float, default=1e-5)
+    p.add_argument("--class_weight_beta", type=float, default=0.9999)
+    p.add_argument("--class_weight_normalize", type=str, default="sample_mean", choices=["sample_mean", "mean_seen", "none"])
     p.add_argument("--device", type=str, default="cpu")
+    p.add_argument("--ablation_suite", type=str, default="default", choices=["default", "feature"])
+    p.add_argument("--baseline_use_class_weights", action="store_true")
+    p.add_argument("--baseline_class_weight_method", type=str, default="inv_sqrt", choices=["inv_sqrt", "effective_num"])
+    p.add_argument("--baseline_label_smoothing", type=float, default=0.0)
+    p.add_argument("--calibrate_temperature", action="store_true")
+    p.add_argument("--use_ecfp_features", action="store_true")
+    p.add_argument("--use_physchem_features", action="store_true")
+    p.add_argument("--use_maccs_features", action="store_true")
+    p.add_argument("--ecfp_bits", type=int, default=2048)
+    p.add_argument("--ecfp_radius", type=int, default=2)
+    p.add_argument("--physchem_dim", type=int, default=0)
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
@@ -38,17 +51,71 @@ def _read_eval_metrics(path: Path, prefer_calibrated: bool) -> dict:
     return data["uncalibrated"]
 
 
+def _default_ablations() -> list[dict]:
+    return [
+        {"name": "GAT", "encoder_type": "gat", "use_class_weights": False, "calibrate": False, "label_smoothing": 0.0},
+        {"name": "GCN", "encoder_type": "gcn", "use_class_weights": False, "calibrate": False, "label_smoothing": 0.0},
+        {"name": "GIN", "encoder_type": "gin", "use_class_weights": False, "calibrate": False, "label_smoothing": 0.0},
+        {
+            "name": "GAT+ClassWeights(inv_sqrt)",
+            "encoder_type": "gat",
+            "use_class_weights": True,
+            "class_weight_method": "inv_sqrt",
+            "calibrate": False,
+            "label_smoothing": 0.0,
+        },
+        {
+            "name": "GAT+ClassWeights(effective_num)",
+            "encoder_type": "gat",
+            "use_class_weights": True,
+            "class_weight_method": "effective_num",
+            "calibrate": False,
+            "label_smoothing": 0.0,
+        },
+        {
+            "name": "GAT+ClassWeights(inv_sqrt)+LS0.05",
+            "encoder_type": "gat",
+            "use_class_weights": True,
+            "class_weight_method": "inv_sqrt",
+            "calibrate": False,
+            "label_smoothing": 0.05,
+        },
+        {
+            "name": "GAT+ClassWeights(inv_sqrt)+TempScaling",
+            "encoder_type": "gat",
+            "use_class_weights": True,
+            "class_weight_method": "inv_sqrt",
+            "calibrate": True,
+            "label_smoothing": 0.0,
+        },
+    ]
+
+
+def _feature_isolation_ablations(args: argparse.Namespace) -> list[dict]:
+    common = {
+        "encoder_type": "gat",
+        "use_class_weights": bool(args.baseline_use_class_weights),
+        "class_weight_method": str(args.baseline_class_weight_method),
+        "calibrate": bool(args.calibrate_temperature),
+        "label_smoothing": float(args.baseline_label_smoothing),
+    }
+    return [
+        {**common, "name": "GAT-baseline", "use_ecfp_features": False, "use_physchem_features": False, "use_maccs_features": False},
+        {**common, "name": "GAT+ECFP", "use_ecfp_features": True, "use_physchem_features": False, "use_maccs_features": False},
+        {**common, "name": "GAT+Physchem", "use_ecfp_features": False, "use_physchem_features": True, "use_maccs_features": False},
+        {**common, "name": "GAT+MACCS", "use_ecfp_features": False, "use_physchem_features": False, "use_maccs_features": True},
+        {**common, "name": "GAT+ECFP+Physchem", "use_ecfp_features": True, "use_physchem_features": True, "use_maccs_features": False},
+    ]
+
+
 def main() -> None:
     args = parse_args()
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
 
-    ablations = [
-        {"name": "GAT", "encoder_type": "gat", "use_class_weights": False, "calibrate": False},
-        {"name": "GCN", "encoder_type": "gcn", "use_class_weights": False, "calibrate": False},
-        {"name": "GIN", "encoder_type": "gin", "use_class_weights": False, "calibrate": False},
-        {"name": "GAT+ClassWeights", "encoder_type": "gat", "use_class_weights": True, "calibrate": False},
-        {"name": "GAT+ClassWeights+TempScaling", "encoder_type": "gat", "use_class_weights": True, "calibrate": True},
-    ]
+    if args.ablation_suite == "feature":
+        ablations = _feature_isolation_ablations(args)
+    else:
+        ablations = _default_ablations()
 
     all_rows: list[dict] = []
     py = sys.executable
@@ -61,6 +128,11 @@ def main() -> None:
             run_name = f"{ab['name']}_seed{seed}".replace("+", "_")
             run_out = out_root / run_name
             run_out.mkdir(parents=True, exist_ok=True)
+            ckpt_path = run_out / "checkpoints" / "best.pt"
+            if ckpt_path.exists():
+                raise RuntimeError(
+                    f"Refusing to reuse existing checkpoint for ablation run '{run_name}': {ckpt_path}"
+                )
 
             train_cmd = [
                 py,
@@ -82,7 +154,7 @@ def main() -> None:
                 "--device",
                 args.device,
                 "--encoder_type",
-                ab["encoder_type"],
+                str(ab["encoder_type"]),
                 "--split_strategy",
                 args.split_strategy,
                 "--split_seed",
@@ -90,8 +162,39 @@ def main() -> None:
             ]
             if args.limit is not None:
                 train_cmd.extend(["--limit", str(args.limit)])
-            if ab["use_class_weights"]:
-                train_cmd.append("--use_class_weights")
+            if bool(ab["use_class_weights"]):
+                train_cmd.extend(
+                    [
+                        "--use_class_weights",
+                        "--class_weight_method",
+                        str(ab.get("class_weight_method", "inv_sqrt")),
+                        "--class_weight_normalize",
+                        str(args.class_weight_normalize),
+                        "--class_weight_beta",
+                        str(args.class_weight_beta),
+                    ]
+                )
+            train_cmd.extend(["--label_smoothing", str(float(ab.get("label_smoothing", 0.0)))])
+
+            use_ecfp = bool(ab.get("use_ecfp_features", args.use_ecfp_features))
+            use_physchem = bool(ab.get("use_physchem_features", args.use_physchem_features))
+            use_maccs = bool(ab.get("use_maccs_features", args.use_maccs_features))
+            if use_ecfp:
+                train_cmd.append("--use_ecfp_features")
+            if use_physchem:
+                train_cmd.append("--use_physchem_features")
+            if use_maccs:
+                train_cmd.append("--use_maccs_features")
+            train_cmd.extend(
+                [
+                    "--ecfp_bits",
+                    str(int(args.ecfp_bits)),
+                    "--ecfp_radius",
+                    str(int(args.ecfp_radius)),
+                    "--physchem_dim",
+                    str(int(args.physchem_dim)),
+                ]
+            )
             _run(train_cmd)
 
             eval_cmd = [
@@ -102,7 +205,7 @@ def main() -> None:
                 "--output_dir",
                 str(run_out),
                 "--checkpoint",
-                str(run_out / "checkpoints" / "best.pt"),
+                str(ckpt_path),
                 "--batch_size",
                 str(args.batch_size),
                 "--device",
@@ -112,12 +215,28 @@ def main() -> None:
                 "--split_seed",
                 str(args.split_seed),
             ]
-            if ab["calibrate"]:
+            if bool(ab["calibrate"]):
                 eval_cmd.append("--calibrate_temperature")
+            if use_ecfp:
+                eval_cmd.append("--use_ecfp_features")
+            if use_physchem:
+                eval_cmd.append("--use_physchem_features")
+            if use_maccs:
+                eval_cmd.append("--use_maccs_features")
+            eval_cmd.extend(
+                [
+                    "--ecfp_bits",
+                    str(int(args.ecfp_bits)),
+                    "--ecfp_radius",
+                    str(int(args.ecfp_radius)),
+                    "--physchem_dim",
+                    str(int(args.physchem_dim)),
+                ]
+            )
             _run(eval_cmd)
 
             metrics_path = run_out / "evaluation_metrics.json"
-            metrics = _read_eval_metrics(metrics_path, prefer_calibrated=ab["calibrate"])
+            metrics = _read_eval_metrics(metrics_path, prefer_calibrated=bool(ab["calibrate"]))
             row = {"ablation": ab["name"], "seed": seed}
             row.update(metrics)
             all_rows.append(row)
@@ -135,6 +254,8 @@ def main() -> None:
         "macro_pr_auc_ovr",
         "ece",
         "brier_score",
+        "objective_loss",
+        "nll_loss",
         "loss",
     ]
     agg = df.groupby("ablation")[metric_cols].agg(["mean", "std"]).reset_index()

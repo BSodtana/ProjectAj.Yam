@@ -44,6 +44,7 @@ class SingleGraphContributionWrapper(nn.Module):
         was_training = self.pair_model.training
         self.pair_model.eval()
         emb, _ = self.pair_model.encoder.encode(fixed, return_attention=False)
+        emb = self.pair_model.build_drug_embedding(emb, feat=None)
         if was_training:
             self.pair_model.train()
         return emb.detach()
@@ -61,6 +62,7 @@ class SingleGraphContributionWrapper(nn.Module):
         graph = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
         graph.batch = batch
         variable_emb, _ = self.pair_model.encoder.encode(graph, return_attention=False)
+        variable_emb = self.pair_model.build_drug_embedding(variable_emb, feat=None)
         fixed_emb = self._get_fixed_embedding(variable_emb.device)
         if fixed_emb.dim() == 1:
             fixed_emb = fixed_emb.unsqueeze(0)

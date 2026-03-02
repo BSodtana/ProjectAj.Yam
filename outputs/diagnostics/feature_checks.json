@@ -1,0 +1,175 @@
+{
+  "all_shapes_ok": true,
+  "cache_hit_rates": {
+    "ecfp_hit_rate": 1.0,
+    "maccs_hit_rate": 1.0,
+    "physchem_hit_rate": 1.0
+  },
+  "cache_stats": {
+    "ecfp_hits": 3021,
+    "ecfp_misses": 0,
+    "ecfp_saved": 0,
+    "load_failures": 0,
+    "maccs_hits": 3021,
+    "maccs_misses": 0,
+    "maccs_saved": 0,
+    "physchem_hits": 3021,
+    "physchem_misses": 0,
+    "physchem_saved": 0,
+    "requests": 3021,
+    "skipped_invalid": 0
+  },
+  "ecfp_density": {
+    "test_all_zero_fraction": 0.0,
+    "test_bit_density": 0.02216552734375,
+    "train_all_zero_fraction": 0.0,
+    "train_bit_density": 0.021002197265625,
+    "valid_all_zero_fraction": 0.0,
+    "valid_bit_density": 0.022034912109375
+  },
+  "enabled": true,
+  "expected_feature_dim": 2224,
+  "feature_influence": {
+    "argmax_change_pct": 0.0,
+    "kl_real_to_zero_mean": 0.007055551744997501,
+    "kl_zero_to_real_mean": 0.006638163235038519,
+    "max_abs_logit_diff": 0.5112401247024536,
+    "mean_abs_logit_diff": 0.05697184428572655,
+    "mean_abs_margin_shift": 0.1419500708580017,
+    "mean_signed_margin_shift": 0.14071866869926453,
+    "n_samples": 64,
+    "symmetric_kl_mean": 0.006846858188509941,
+    "top5_full_match_pct": 84.375,
+    "top5_overlap_mean": 0.96875
+  },
+  "loader_scans": {
+    "test": {
+      "ecfp_all_zero_fraction": 0.0,
+      "ecfp_bit_density": 0.02216552734375,
+      "first_batch_shape": {
+        "feat_a": [
+          64,
+          2224
+        ],
+        "feat_b": [
+          64,
+          2224
+        ]
+      },
+      "n_batches": 4,
+      "n_samples": 200,
+      "physchem_all_finite": true,
+      "physchem_dim_std_lt_1e3_fraction": 0.0,
+      "physchem_dim_std_max": 1.3872497107755117,
+      "physchem_dim_std_median": 1.1644779469596953,
+      "physchem_dim_std_min": 0.893331349034348,
+      "physchem_value_mean": 0.09578808838955592,
+      "physchem_value_std": 1.1783954887390646,
+      "shape_ok": true
+    },
+    "train": {
+      "ecfp_all_zero_fraction": 0.0,
+      "ecfp_bit_density": 0.021002197265625,
+      "first_batch_shape": {
+        "feat_a": [
+          64,
+          2224
+        ],
+        "feat_b": [
+          64,
+          2224
+        ]
+      },
+      "n_batches": 4,
+      "n_samples": 200,
+      "physchem_all_finite": true,
+      "physchem_dim_std_lt_1e3_fraction": 0.0,
+      "physchem_dim_std_max": 1.0495334462107597,
+      "physchem_dim_std_median": 0.9792682896585373,
+      "physchem_dim_std_min": 0.9656216242855649,
+      "physchem_value_mean": 0.006108053052739706,
+      "physchem_value_std": 0.9956447469670537,
+      "shape_ok": true
+    },
+    "valid": {
+      "ecfp_all_zero_fraction": 0.0,
+      "ecfp_bit_density": 0.022034912109375,
+      "first_batch_shape": {
+        "feat_a": [
+          64,
+          2224
+        ],
+        "feat_b": [
+          64,
+          2224
+        ]
+      },
+      "n_batches": 4,
+      "n_samples": 200,
+      "physchem_all_finite": true,
+      "physchem_dim_std_lt_1e3_fraction": 0.0,
+      "physchem_dim_std_max": 1.349390397043642,
+      "physchem_dim_std_median": 1.1510038435524472,
+      "physchem_dim_std_min": 0.7204066703356826,
+      "physchem_value_mean": 0.06327929139445769,
+      "physchem_value_std": 1.1295707493158151,
+      "shape_ok": true
+    }
+  },
+  "physchem_all_finite": true,
+  "physchem_distribution": {
+    "test_dim_std_lt_1e3_fraction": 0.0,
+    "test_dim_std_max": 1.3872497107755117,
+    "test_dim_std_median": 1.1644779469596953,
+    "test_dim_std_min": 0.893331349034348,
+    "test_mean": 0.09578808838955592,
+    "test_std": 1.1783954887390646,
+    "train_dim_std_lt_1e3_fraction": 0.0,
+    "train_dim_std_max": 1.0495334462107597,
+    "train_dim_std_median": 0.9792682896585373,
+    "train_dim_std_min": 0.9656216242855649,
+    "train_mean": 0.006108053052739706,
+    "train_std": 0.9956447469670537,
+    "valid_dim_std_lt_1e3_fraction": 0.0,
+    "valid_dim_std_max": 1.349390397043642,
+    "valid_dim_std_median": 1.1510038435524472,
+    "valid_dim_std_min": 0.7204066703356826,
+    "valid_mean": 0.06327929139445769,
+    "valid_std": 1.1295707493158151
+  },
+  "scaler": {
+    "checkpoint_training_start_unix": 1772473548.378002,
+    "expected_train_digest": "cd4d1c9bb656cdad0bc10b4abee08b8841bc98ac44e354e62931fdf7e263cb91",
+    "matches_all_split_digest": false,
+    "matches_current_train_digest": true,
+    "mtime_leq_training_start": true,
+    "mtime_unchanged_during_diag": true,
+    "mtime_unix_after_diag": 1772473543.6301773,
+    "mtime_unix_before_diag": 1772473543.6301773,
+    "observed_digest": "cd4d1c9bb656cdad0bc10b4abee08b8841bc98ac44e354e62931fdf7e263cb91",
+    "path": "outputs/drug_features/physchem_scaler.json",
+    "source_split": "train",
+    "std_stats": {
+      "std_floor": 1e-06,
+      "std_lt_1e3_fraction": 0.0,
+      "std_max": 179.36514094973754,
+      "std_median": 3.209508565711376,
+      "std_min": 0.23980124546877044
+    },
+    "train_only_no_leakage": true
+  },
+  "slices": {
+    "ecfp": [
+      0,
+      2048
+    ],
+    "maccs": [
+      2058,
+      2224
+    ],
+    "physchem": [
+      2048,
+      2058
+    ]
+  }
+}

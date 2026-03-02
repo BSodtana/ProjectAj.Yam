@@ -81,6 +81,12 @@ def resolve_device(device_arg: str) -> torch.device:
 
 def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> DDIPairModel:
     cfg = (payload.get("config") or {}).get("model", {})
+    use_ecfp_features = bool(cfg.get("use_ecfp_features", False))
+    use_physchem_features = bool(cfg.get("use_physchem_features", False))
+    use_maccs_features = bool(cfg.get("use_maccs_features", False))
+    physchem_dim = int(cfg.get("physchem_dim", 0))
+    if use_physchem_features and physchem_dim <= 0:
+        physchem_dim = 10
     model = DDIPairModel(
         in_dim=int(cfg.get("in_dim", 7)),
         edge_dim=int(cfg.get("edge_dim", 5)),
@@ -93,6 +99,15 @@ def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> 
         mlp_hidden_dim=int(cfg.get("mlp_hidden_dim", 256)),
         num_classes=int(cfg.get("num_classes", 86)),
         pooling=str(cfg.get("pooling", "mean")),
+        use_ecfp_features=use_ecfp_features,
+        use_physchem_features=use_physchem_features,
+        use_maccs_features=use_maccs_features,
+        ecfp_bits=int(cfg.get("ecfp_bits", 2048)),
+        physchem_dim=physchem_dim,
+        maccs_dim=int(cfg.get("maccs_dim", 166)),
+        ecfp_proj_dim=int(cfg.get("ecfp_proj_dim", 128)),
+        physchem_proj_dim=int(cfg.get("physchem_proj_dim", 32)),
+        maccs_proj_dim=int(cfg.get("maccs_proj_dim", 32)),
     ).to(device)
     model.load_state_dict(payload["model_state_dict"])
     model.eval()

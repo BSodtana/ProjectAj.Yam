@@ -1,0 +1,69 @@
+{
+  "cache_stats": {
+    "ecfp_hits": 0,
+    "ecfp_misses": 0,
+    "ecfp_saved": 0,
+    "load_failures": 0,
+    "maccs_hits": 0,
+    "maccs_misses": 0,
+    "maccs_saved": 0,
+    "physchem_hits": 113613,
+    "physchem_misses": 1626,
+    "physchem_saved": 1626,
+    "requests": 115242,
+    "skipped_invalid": 3
+  },
+  "ecfp_bits": 2048,
+  "ecfp_radius": 2,
+  "feature_dim_total": 10,
+  "maccs_dim": 166,
+  "physchem_dim": 10,
+  "physchem_scaler": {
+    "canonical_smiles_sha256": "f0ffc83a48d6629754e73349e92fa04d00acc743f626502f0ee0986041503754",
+    "descriptor_names": [
+      "MolWt",
+      "MolLogP",
+      "TPSA",
+      "NumHDonors",
+      "NumHAcceptors",
+      "NumRotatableBonds",
+      "RingCount",
+      "NumAromaticRings",
+      "FractionCSP3",
+      "HeavyAtomCount"
+    ],
+    "dim": 10,
+    "mean": [
+      395.2314702288972,
+      2.1070959034314,
+      97.63768228598767,
+      2.2855902777777777,
+      5.583333333333333,
+      5.7890625,
+      2.9401041666666665,
+      1.5321180555555556,
+      0.452176421143425,
+      27.30815972222222
+    ],
+    "n_invalid_molecules": 0,
+    "n_unique_canonical_smiles": 1152,
+    "n_valid_molecules": 1152,
+    "source_split": "train",
+    "std": [
+      355.8321756441719,
+      3.386340695419582,
+      146.34146013176817,
+      4.4230536364616535,
+      7.354019120332947,
+      9.760221769109801,
+      2.306931581664832,
+      1.4033725598067142,
+      0.25581756272084444,
+      24.143228636089486
+    ],
+    "std_floor": 1e-06
+  },
+  "use_ecfp_features": false,
+  "use_maccs_features": false,
+  "use_physchem_features": true
+}

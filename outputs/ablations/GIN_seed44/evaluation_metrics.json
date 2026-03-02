@@ -1,0 +1,37 @@
+{
+  "objective_config": {
+    "use_class_weights": false,
+    "class_weight_method": "inv_sqrt",
+    "class_weight_beta": 0.9999,
+    "class_weight_clip_min": 0.25,
+    "class_weight_clip_max": 20.0,
+    "class_weight_eps": 1e-12,
+    "label_smoothing": 0.0
+  },
+  "uncalibrated": {
+    "accuracy": 0.36697729360808506,
+    "macro_f1": 0.1613705829397823,
+    "micro_f1": 0.36697729360808506,
+    "cohen_kappa": 0.19527961532782034,
+    "brier_score": 0.8163226842880249,
+    "ece": 0.1802148927144451,
+    "nll": 2.36281681060791,
+    "macro_roc_auc_ovr": 0.8231613903482773,
+    "macro_pr_auc_ovr": 0.24597105187946197,
+    "macro_f1_present_only": 0.1613705829397823,
+    "kappa": 0.19527961532782034,
+    "objective_loss": 2.362816751871636,
+    "nll_loss": 2.362816751871636,
+    "loss": 2.362816751871636
+  },
+  "summary": {
+    "objective_loss": 2.362816751871636,
+    "nll_loss": 2.362816751871636,
+    "macro_f1": 0.1613705829397823,
+    "micro_f1": 0.36697729360808506,
+    "accuracy": 0.36697729360808506,
+    "kappa": 0.19527961532782034,
+    "macro_pr_auc_ovr": 0.24597105187946197,
+    "macro_roc_auc_ovr": 0.8231613903482773
+  }
+}

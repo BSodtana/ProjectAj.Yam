@@ -15,7 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from ddigat.data.cache import GraphCache
+from ddigat.data.cache import DrugFeatureCache, GraphCache
+from ddigat.data.drug_features import PHYS_CHEM_DESCRIPTOR_NAMES
 from ddigat.data.splits import DDIPairDataset, make_pair_dataloader, subsample_dataframe
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.model.pair_model import DDIPairModel
@@ -45,6 +46,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--ece_bins", type=int, default=15)
     p.add_argument("--calibrate_temperature", action="store_true")
+    p.add_argument("--use_ecfp_features", action="store_true")
+    p.add_argument("--use_physchem_features", action="store_true")
+    p.add_argument("--use_maccs_features", action="store_true")
+    p.add_argument("--ecfp_bits", type=int, default=2048)
+    p.add_argument("--ecfp_radius", type=int, default=2)
+    p.add_argument("--physchem_dim", type=int, default=0, help="0=auto from checkpoint/extractor")
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
@@ -71,7 +78,29 @@ def resolve_device(device_arg: str) -> torch.device:
     return torch.device(device_arg)
 
 
-def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> DDIPairModel:
+def _resolve_feature_config(model_cfg: dict, args: argparse.Namespace) -> dict[str, int | bool]:
+    use_ecfp_features = bool(model_cfg.get("use_ecfp_features", False) or args.use_ecfp_features)
+    use_physchem_features = bool(model_cfg.get("use_physchem_features", False) or args.use_physchem_features)
+    use_maccs_features = bool(model_cfg.get("use_maccs_features", False) or args.use_maccs_features)
+    ecfp_bits = int(model_cfg.get("ecfp_bits", args.ecfp_bits))
+    ecfp_radius = int(model_cfg.get("ecfp_radius", args.ecfp_radius))
+    default_physchem_dim = int(args.physchem_dim) if int(args.physchem_dim) > 0 else int(len(PHYS_CHEM_DESCRIPTOR_NAMES))
+    physchem_dim = int(model_cfg.get("physchem_dim", default_physchem_dim))
+    if use_physchem_features and physchem_dim <= 0:
+        physchem_dim = int(len(PHYS_CHEM_DESCRIPTOR_NAMES))
+    maccs_dim = int(model_cfg.get("maccs_dim", 166))
+    return {
+        "use_ecfp_features": use_ecfp_features,
+        "use_physchem_features": use_physchem_features,
+        "use_maccs_features": use_maccs_features,
+        "ecfp_bits": ecfp_bits,
+        "ecfp_radius": ecfp_radius,
+        "physchem_dim": physchem_dim,
+        "maccs_dim": maccs_dim,
+    }
+
+
+def build_model_from_checkpoint_payload(payload: dict, device: torch.device, feature_cfg: dict[str, int | bool]) -> DDIPairModel:
     cfg = payload.get("config", {})
     model_cfg = (cfg or {}).get("model", {})
     model = DDIPairModel(
@@ -86,6 +115,15 @@ def build_model_from_checkpoint_payload(payload: dict, device: torch.device) -> 
         mlp_hidden_dim=int(model_cfg.get("mlp_hidden_dim", 256)),
         num_classes=int(model_cfg.get("num_classes", 86)),
         pooling=str(model_cfg.get("pooling", "mean")),
+        use_ecfp_features=bool(feature_cfg["use_ecfp_features"]),
+        use_physchem_features=bool(feature_cfg["use_physchem_features"]),
+        use_maccs_features=bool(feature_cfg["use_maccs_features"]),
+        ecfp_bits=int(feature_cfg["ecfp_bits"]),
+        physchem_dim=int(feature_cfg["physchem_dim"]),
+        maccs_dim=int(feature_cfg["maccs_dim"]),
+        ecfp_proj_dim=int(model_cfg.get("ecfp_proj_dim", 128)),
+        physchem_proj_dim=int(model_cfg.get("physchem_proj_dim", 32)),
+        maccs_proj_dim=int(model_cfg.get("maccs_proj_dim", 32)),
     ).to(device)
     model.load_state_dict(payload["model_state_dict"])
     model.eval()
@@ -108,7 +146,10 @@ def main() -> None:
     device = resolve_device(args.device)
 
     payload = torch_load(args.checkpoint, map_location=device)
-    model = build_model_from_checkpoint_payload(payload, device)
+    cfg = payload.get("config", {}) or {}
+    model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+    feature_cfg = _resolve_feature_config(model_cfg if isinstance(model_cfg, dict) else {}, args)
+    model = build_model_from_checkpoint_payload(payload, device, feature_cfg=feature_cfg)
 
     train_df, valid_df, test_df, _ = load_tdc_drugbank_ddi(
         args.data_dir,
@@ -119,16 +160,23 @@ def main() -> None:
     if args.limit is not None:
         test_df = subsample_dataframe(test_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)
 
-    cfg = payload.get("config", {}) or {}
     train_cfg = cfg.get("train", {}) if isinstance(cfg, dict) else {}
-    use_class_weights = bool(train_cfg.get("use_class_weights", False))
-    class_weight_method = str(train_cfg.get("class_weight_method", "inv_sqrt"))
-    class_weight_beta = float(train_cfg.get("class_weight_beta", 0.9999))
-    class_weight_clip_min = float(train_cfg.get("class_weight_clip_min", 0.25))
-    class_weight_clip_max = float(train_cfg.get("class_weight_clip_max", 20.0))
-    class_weight_eps = float(train_cfg.get("class_weight_eps", 1e-12))
-    class_counts_cfg = train_cfg.get("class_counts", None)
-    label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
+    checkpoint_loss_cfg = payload.get("loss_config", {}) or {}
+
+    def _cfg_get(key: str, default):
+        if isinstance(checkpoint_loss_cfg, dict) and key in checkpoint_loss_cfg:
+            return checkpoint_loss_cfg.get(key)
+        return train_cfg.get(key, default)
+
+    use_class_weights = bool(_cfg_get("use_class_weights", False))
+    class_weight_method = str(_cfg_get("class_weight_method", "inv_sqrt"))
+    class_weight_normalize = str(_cfg_get("class_weight_normalize", "sample_mean"))
+    class_weight_beta = float(_cfg_get("class_weight_beta", 0.9999))
+    class_weight_clip_min = float(_cfg_get("class_weight_clip_min", 0.25))
+    class_weight_clip_max = float(_cfg_get("class_weight_clip_max", 4.0))
+    class_weight_eps = float(_cfg_get("class_weight_eps", 1e-12))
+    class_counts_cfg = _cfg_get("class_counts", None)
+    label_smoothing = float(_cfg_get("label_smoothing", 0.0))
     if use_class_weights:
         if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
             class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
@@ -137,6 +185,7 @@ def main() -> None:
         class_weight_info = compute_class_weights(
             class_counts,
             method=class_weight_method,
+            normalize=class_weight_normalize,
             beta=class_weight_beta,
             eps=class_weight_eps,
             clip_min=class_weight_clip_min,
@@ -148,20 +197,53 @@ def main() -> None:
             clip_min=class_weight_clip_min,
             clip_max=class_weight_clip_max,
             mean_after_normalization=class_weight_info.mean_after_normalization,
+            counts=class_counts,
+            normalize=class_weight_normalize,
         )
         class_weights = class_weight_info.weights
     else:
         class_weights = None
     model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
     LOGGER.info(
-        "Evaluation objective restored | use_class_weights=%s method=%s label_smoothing=%.4f",
+        "Evaluation objective restored | use_class_weights=%s method=%s normalize=%s label_smoothing=%.4f",
         use_class_weights,
         class_weight_method,
+        class_weight_normalize,
         label_smoothing,
     )
 
     cache = GraphCache(output_dir=args.output_dir)
-    test_ds = DDIPairDataset(test_df, cache, split_name="test")
+    feature_cache: DrugFeatureCache | None = None
+    if bool(
+        feature_cfg["use_ecfp_features"] or feature_cfg["use_physchem_features"] or feature_cfg["use_maccs_features"]
+    ):
+        feature_cache = DrugFeatureCache(
+            output_dir=args.output_dir,
+            use_ecfp=bool(feature_cfg["use_ecfp_features"]),
+            use_physchem=bool(feature_cfg["use_physchem_features"]),
+            use_maccs=bool(feature_cfg["use_maccs_features"]),
+            ecfp_bits=int(feature_cfg["ecfp_bits"]),
+            ecfp_radius=int(feature_cfg["ecfp_radius"]),
+        )
+        if bool(feature_cfg["use_physchem_features"]):
+            physchem_stats = feature_cache.load_physchem_stats()
+            if physchem_stats is None:
+                raise FileNotFoundError(
+                    f"Missing physchem scaler at {feature_cache.scaler_path}. "
+                    "Train with --use_physchem_features first to persist train-only scaler stats."
+                )
+            feature_cache.set_physchem_stats(physchem_stats)
+            scaler_dim = int(physchem_stats.get("dim", feature_cache.physchem_dim))
+            if scaler_dim != int(feature_cfg["physchem_dim"]):
+                raise ValueError(
+                    f"Physchem dim mismatch between checkpoint config ({feature_cfg['physchem_dim']}) and scaler ({scaler_dim})"
+                )
+        all_feature_smiles = list(test_df["drug_a_smiles"]) + list(test_df["drug_b_smiles"])
+        if args.calibrate_temperature:
+            all_feature_smiles += list(valid_df["drug_a_smiles"]) + list(valid_df["drug_b_smiles"])
+        feature_cache.build(all_feature_smiles, show_progress=False)
+
+    test_ds = DDIPairDataset(test_df, cache, feature_cache=feature_cache, split_name="test")
     test_loader = make_pair_dataloader(
         test_ds,
         batch_size=args.batch_size,
@@ -193,6 +275,7 @@ def main() -> None:
         "objective_config": {
             "use_class_weights": use_class_weights,
             "class_weight_method": class_weight_method,
+            "class_weight_normalize": class_weight_normalize,
             "class_weight_beta": class_weight_beta,
             "class_weight_clip_min": class_weight_clip_min,
             "class_weight_clip_max": class_weight_clip_max,
@@ -213,7 +296,7 @@ def main() -> None:
     }
 
     if args.calibrate_temperature:
-        valid_ds = DDIPairDataset(valid_df, cache, split_name="valid")
+        valid_ds = DDIPairDataset(valid_df, cache, feature_cache=feature_cache, split_name="valid")
         valid_loader = make_pair_dataloader(
             valid_ds,
             batch_size=args.batch_size,

@@ -18,6 +18,16 @@ class ModelConfig:
     mlp_hidden_dim: int = 256
     num_classes: int = 86
     pooling: str = "mean"
+    use_ecfp_features: bool = False
+    use_physchem_features: bool = False
+    use_maccs_features: bool = False
+    ecfp_bits: int = 2048
+    ecfp_radius: int = 2
+    physchem_dim: int = 0
+    maccs_dim: int = 166
+    ecfp_proj_dim: int = 128
+    physchem_proj_dim: int = 32
+    maccs_proj_dim: int = 32
 
 
 @dataclass
@@ -35,14 +45,16 @@ class TrainConfig:
     limit: int | None = None
     use_class_weights: bool = False
     class_weight_method: str = "inv_sqrt"
+    class_weight_normalize: str = "sample_mean"
     class_weight_beta: float = 0.9999
     class_weight_clip_min: float = 0.25
-    class_weight_clip_max: float = 20.0
+    class_weight_clip_max: float = 4.0
     class_weight_eps: float = 1e-12
     class_counts: list[int] | None = None
     label_smoothing: float = 0.0
     split_strategy: str = "cold_drug"
     split_seed: int = 42
+    training_start_unix: float | None = None
 
 
 @dataclass

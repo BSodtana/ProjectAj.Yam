@@ -1,0 +1,24 @@
+{
+  "cache_stats": {
+    "ecfp_hits": 113613,
+    "ecfp_misses": 1626,
+    "ecfp_saved": 1626,
+    "load_failures": 0,
+    "maccs_hits": 0,
+    "maccs_misses": 0,
+    "maccs_saved": 0,
+    "physchem_hits": 0,
+    "physchem_misses": 0,
+    "physchem_saved": 0,
+    "requests": 115242,
+    "skipped_invalid": 3
+  },
+  "ecfp_bits": 2048,
+  "ecfp_radius": 2,
+  "feature_dim_total": 2048,
+  "maccs_dim": 166,
+  "physchem_dim": 0,
+  "use_ecfp_features": true,
+  "use_maccs_features": false,
+  "use_physchem_features": false
+}

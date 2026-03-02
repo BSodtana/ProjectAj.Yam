@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torch_geometric.data import Batch, Data
 
-from ddigat.data.cache import GraphCache
+from ddigat.data.cache import DrugFeatureCache, GraphCache
 from ddigat.utils.logging import get_logger
 from ddigat.utils.seed import seed_worker
 
@@ -21,6 +21,8 @@ LOGGER = get_logger(__name__)
 class PairSample:
     graph_a: Data
     graph_b: Data
+    feat_a: torch.Tensor
+    feat_b: torch.Tensor
     y: int
     pair_id: str
     smiles_a: str
@@ -32,6 +34,7 @@ class DDIPairDataset(Dataset):
         self,
         df: pd.DataFrame,
         graph_cache: GraphCache,
+        feature_cache: Optional[DrugFeatureCache] = None,
         limit: Optional[int] = None,
         split_name: str = "train",
     ) -> None:
@@ -39,6 +42,7 @@ class DDIPairDataset(Dataset):
             df = df.iloc[:limit].copy()
         self.df = df.reset_index(drop=True)
         self.graph_cache = graph_cache
+        self.feature_cache = feature_cache
         self.split_name = split_name
 
     def __len__(self) -> int:
@@ -46,18 +50,30 @@ class DDIPairDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Optional[PairSample]:
         row = self.df.iloc[idx]
-        a = self.graph_cache.get_or_create(str(row["drug_a_smiles"]))
-        b = self.graph_cache.get_or_create(str(row["drug_b_smiles"]))
+        smiles_a = str(row["drug_a_smiles"])
+        smiles_b = str(row["drug_b_smiles"])
+        a = self.graph_cache.get_or_create(smiles_a)
+        b = self.graph_cache.get_or_create(smiles_b)
         if a is None or b is None:
             return None
+        if self.feature_cache is not None:
+            feat_a_np = self.feature_cache.get_or_create(smiles_a)
+            feat_b_np = self.feature_cache.get_or_create(smiles_b)
+            if feat_a_np is None or feat_b_np is None:
+                return None
+        else:
+            feat_a_np = np.empty((0,), dtype=np.float32)
+            feat_b_np = np.empty((0,), dtype=np.float32)
         pair_id = f"{self.split_name}_{idx}"
         return PairSample(
             graph_a=a,
             graph_b=b,
+            feat_a=torch.tensor(feat_a_np, dtype=torch.float32),
+            feat_b=torch.tensor(feat_b_np, dtype=torch.float32),
             y=int(row["y"]),
             pair_id=pair_id,
-            smiles_a=str(row["drug_a_smiles"]),
-            smiles_b=str(row["drug_b_smiles"]),
+            smiles_a=smiles_a,
+            smiles_b=smiles_b,
         )
 
 
@@ -128,13 +144,15 @@ def collate_pair_batch(items: list[Optional[PairSample]]) -> Optional[dict[str, 
         return None
     graph_a = Batch.from_data_list([it.graph_a for it in items])
     graph_b = Batch.from_data_list([it.graph_b for it in items])
+    feat_a = torch.stack([it.feat_a for it in items], dim=0).to(torch.float32)
+    feat_b = torch.stack([it.feat_b for it in items], dim=0).to(torch.float32)
     y = torch.tensor([it.y for it in items], dtype=torch.long)
     meta = {
         "pair_ids": [it.pair_id for it in items],
         "smiles_a": [it.smiles_a for it in items],
         "smiles_b": [it.smiles_b for it in items],
     }
-    return {"graph_a": graph_a, "graph_b": graph_b, "y": y, "meta": meta}
+    return {"graph_a": graph_a, "graph_b": graph_b, "feat_a": feat_a, "feat_b": feat_b, "y": y, "meta": meta}
 
 
 def make_pair_dataloader(

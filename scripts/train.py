@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -13,7 +15,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ddigat.config import default_project_config
-from ddigat.data.cache import GraphCache
+from ddigat.data.cache import DrugFeatureCache, GraphCache
+from ddigat.data.drug_features import compute_train_feature_stats
 from ddigat.data.splits import DDIPairDataset, make_pair_dataloader, subsample_dataframe
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.model.pair_model import DDIPairModel
@@ -52,11 +55,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--heads", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.2)
     p.add_argument("--encoder_type", type=str, default="gat", choices=["gat", "gcn", "gin"])
+    p.add_argument("--use_ecfp_features", action="store_true")
+    p.add_argument("--use_physchem_features", action="store_true")
+    p.add_argument("--use_maccs_features", action="store_true")
+    p.add_argument("--ecfp_bits", type=int, default=2048)
+    p.add_argument("--ecfp_radius", type=int, default=2)
+    p.add_argument("--physchem_dim", type=int, default=0, help="0=auto from extractor")
     p.add_argument("--use_class_weights", action="store_true")
     p.add_argument("--class_weight_method", type=str, default="inv_sqrt", choices=["inv_sqrt", "effective_num"])
+    p.add_argument("--class_weight_normalize", type=str, default="sample_mean", choices=["sample_mean", "mean_seen", "none"])
     p.add_argument("--class_weight_beta", type=float, default=0.9999)
     p.add_argument("--class_weight_clip_min", type=float, default=0.25)
-    p.add_argument("--class_weight_clip_max", type=float, default=20.0)
+    p.add_argument("--class_weight_clip_max", type=float, default=4.0)
     p.add_argument("--label_smoothing", type=float, default=0.0)
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
@@ -107,9 +117,31 @@ def main() -> None:
         + list(valid_df["drug_b_smiles"])
     )
     cache.build(all_smiles, show_progress=True)
+    feature_cache: DrugFeatureCache | None = None
+    resolved_physchem_dim = 0
+    use_any_drug_features = bool(args.use_ecfp_features or args.use_physchem_features or args.use_maccs_features)
+    if use_any_drug_features:
+        feature_cache = DrugFeatureCache(
+            output_dir=args.output_dir,
+            use_ecfp=bool(args.use_ecfp_features),
+            use_physchem=bool(args.use_physchem_features),
+            use_maccs=bool(args.use_maccs_features),
+            ecfp_bits=int(args.ecfp_bits),
+            ecfp_radius=int(args.ecfp_radius),
+        )
+        if args.use_physchem_features:
+            train_smiles = list(train_df["drug_a_smiles"]) + list(train_df["drug_b_smiles"])
+            physchem_stats = compute_train_feature_stats(train_smiles)
+            if int(args.physchem_dim) > 0 and int(physchem_stats["dim"]) != int(args.physchem_dim):
+                raise ValueError(
+                    f"--physchem_dim={args.physchem_dim} does not match extractor dim={physchem_stats['dim']}"
+                )
+            feature_cache.set_physchem_stats(physchem_stats, persist=True)
+            resolved_physchem_dim = int(physchem_stats["dim"])
+        feature_cache.build(all_smiles, show_progress=True)
 
-    train_ds = DDIPairDataset(train_df, cache, split_name="train")
-    valid_ds = DDIPairDataset(valid_df, cache, split_name="valid")
+    train_ds = DDIPairDataset(train_df, cache, feature_cache=feature_cache, split_name="train")
+    valid_ds = DDIPairDataset(valid_df, cache, feature_cache=feature_cache, split_name="valid")
     train_loader = make_pair_dataloader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, seed=args.seed)
     valid_loader = make_pair_dataloader(valid_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, seed=args.seed)
 
@@ -125,6 +157,7 @@ def main() -> None:
     cfg.train.device = str(device)
     cfg.train.use_class_weights = bool(args.use_class_weights)
     cfg.train.class_weight_method = str(args.class_weight_method)
+    cfg.train.class_weight_normalize = str(args.class_weight_normalize)
     cfg.train.class_weight_beta = float(args.class_weight_beta)
     cfg.train.class_weight_clip_min = float(args.class_weight_clip_min)
     cfg.train.class_weight_clip_max = float(args.class_weight_clip_max)
@@ -138,6 +171,13 @@ def main() -> None:
     cfg.model.heads = args.heads
     cfg.model.dropout = args.dropout
     cfg.model.num_classes = len(label_map)
+    cfg.model.use_ecfp_features = bool(args.use_ecfp_features)
+    cfg.model.use_physchem_features = bool(args.use_physchem_features)
+    cfg.model.use_maccs_features = bool(args.use_maccs_features)
+    cfg.model.ecfp_bits = int(args.ecfp_bits)
+    cfg.model.ecfp_radius = int(args.ecfp_radius)
+    cfg.model.physchem_dim = int(resolved_physchem_dim)
+    cfg.model.maccs_dim = 166
 
     model = DDIPairModel(
         in_dim=cfg.model.in_dim,
@@ -151,8 +191,34 @@ def main() -> None:
         mlp_hidden_dim=cfg.model.mlp_hidden_dim,
         num_classes=cfg.model.num_classes,
         pooling=cfg.model.pooling,
+        use_ecfp_features=cfg.model.use_ecfp_features,
+        use_physchem_features=cfg.model.use_physchem_features,
+        use_maccs_features=cfg.model.use_maccs_features,
+        ecfp_bits=cfg.model.ecfp_bits,
+        physchem_dim=cfg.model.physchem_dim,
+        maccs_dim=cfg.model.maccs_dim,
+        ecfp_proj_dim=cfg.model.ecfp_proj_dim,
+        physchem_proj_dim=cfg.model.physchem_proj_dim,
+        maccs_proj_dim=cfg.model.maccs_proj_dim,
     ).to(device)
     diagnostics_dir = ensure_dir(Path(args.output_dir) / "diagnostics")
+    if feature_cache is not None:
+        feature_diag = {
+            "use_ecfp_features": bool(cfg.model.use_ecfp_features),
+            "use_physchem_features": bool(cfg.model.use_physchem_features),
+            "use_maccs_features": bool(cfg.model.use_maccs_features),
+            "ecfp_bits": int(cfg.model.ecfp_bits),
+            "ecfp_radius": int(cfg.model.ecfp_radius),
+            "physchem_dim": int(cfg.model.physchem_dim),
+            "maccs_dim": int(cfg.model.maccs_dim),
+            "feature_dim_total": int(feature_cache.feature_dim),
+            "cache_stats": {k: int(v) for k, v in feature_cache.stats.items()},
+        }
+        if feature_cache.scaler_path.exists():
+            loaded_stats = feature_cache.load_physchem_stats()
+            if isinstance(loaded_stats, dict):
+                feature_diag["physchem_scaler"] = loaded_stats
+        save_json(feature_diag, diagnostics_dir / "feature_cache.json")
     class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
     cfg.train.class_counts = [int(v) for v in class_counts.tolist()]
     save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "class_counts.json")
@@ -160,6 +226,7 @@ def main() -> None:
     class_weight_info = compute_class_weights(
         class_counts,
         method=str(args.class_weight_method),
+        normalize=str(args.class_weight_normalize),
         beta=float(args.class_weight_beta),
         eps=float(cfg.train.class_weight_eps),
         clip_min=float(args.class_weight_clip_min),
@@ -171,6 +238,8 @@ def main() -> None:
         clip_min=float(args.class_weight_clip_min),
         clip_max=float(args.class_weight_clip_max),
         mean_after_normalization=float(class_weight_info.mean_after_normalization),
+        counts=class_counts,
+        normalize=str(args.class_weight_normalize),
     )
     save_json(
         class_weights_payload(
@@ -188,15 +257,35 @@ def main() -> None:
     if args.use_class_weights:
         class_weights = class_weight_info.weights
         LOGGER.info(
-            "Using class-weighted loss | method=%s beta=%.6f min=%.4f max=%.4f",
+            "Using class-weighted loss | method=%s normalize=%s beta=%.6f min=%.4f mean=%.4f max=%.4f seen=%d unseen=%d sat_min_seen=%.2f sat_max_seen=%.2f",
             args.class_weight_method,
+            args.class_weight_normalize,
             float(args.class_weight_beta),
             float(class_weights.min()),
+            float(class_weights.mean()),
             float(class_weights.max()),
+            int(class_weight_info.n_seen),
+            int(class_weight_info.n_unseen),
+            float(class_weight_info.sat_min_seen),
+            float(class_weight_info.sat_max_seen),
         )
     else:
         class_weights = None
     model.set_loss_params(class_weights=class_weights, label_smoothing=float(args.label_smoothing))
+
+    loss_config = {
+        "use_class_weights": bool(args.use_class_weights),
+        "class_weight_method": str(args.class_weight_method),
+        "class_weight_normalize": str(args.class_weight_normalize),
+        "class_weight_beta": float(args.class_weight_beta),
+        "class_weight_clip_min": float(args.class_weight_clip_min),
+        "class_weight_clip_max": float(args.class_weight_clip_max),
+        "class_weight_eps": float(cfg.train.class_weight_eps),
+        "label_smoothing": float(args.label_smoothing),
+        "num_classes": int(cfg.model.num_classes),
+        "class_counts": [int(v) for v in class_counts.tolist()],
+    }
+    LOGGER.info("Loss config: %s", json.dumps(loss_config, sort_keys=True))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -208,6 +297,7 @@ def main() -> None:
         args.epochs,
         device,
     )
+    cfg.train.training_start_unix = float(time.time())
 
     fit_result = fit(
         model=model,
@@ -219,6 +309,7 @@ def main() -> None:
         output_dir=args.output_dir,
         config=cfg.to_dict(),
         label_map=label_map,
+        loss_config=loss_config,
         patience=args.patience,
         min_delta=0.0,
         amp_enabled=True,

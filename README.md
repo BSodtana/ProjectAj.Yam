@@ -64,6 +64,29 @@ python scripts/train.py --data_dir ./data --output_dir ./outputs \
   --class_weight_clip_max 20.0
 ```
 
+Optional SMILES-derived feature branches (cached by canonical SMILES hash):
+
+```bash
+# ECFP4 (2048-bit) + standardized RDKit physchem descriptors
+python scripts/train.py --data_dir ./data --output_dir ./outputs \
+  --use_ecfp_features \
+  --use_physchem_features \
+  --ecfp_bits 2048 \
+  --ecfp_radius 2
+
+# Add optional MACCS keys (166-bit)
+python scripts/train.py --data_dir ./data --output_dir ./outputs \
+  --use_ecfp_features \
+  --use_physchem_features \
+  --use_maccs_features
+```
+
+Feature cache artifacts:
+- `outputs/drug_features/ecfp/<hash>.npy`
+- `outputs/drug_features/physchem/<hash>.npy`
+- `outputs/drug_features/maccs/<hash>.npy`
+- `outputs/drug_features/physchem_scaler.json` (train-split mean/std only)
+
 Implementation note:
 - Uses PyTorch `cross_entropy` / `CrossEntropyLoss` semantics with `weight=` and `label_smoothing=`.
 - With `reduction="mean"`, weighted CE follows PyTorch’s weight-normalized mean behavior.
@@ -117,6 +140,17 @@ Artifacts in:
 python scripts/run_ablations.py --data_dir ./data --output_dir ./outputs --seeds 42,43,44 --limit 50000 --epochs 10
 ```
 
+Feature-isolation ablation suite (same objective across variants):
+
+```bash
+python scripts/run_ablations.py --data_dir ./data --output_dir ./outputs \
+  --ablation_suite feature \
+  --seeds 42,43,44 \
+  --baseline_use_class_weights \
+  --baseline_class_weight_method inv_sqrt \
+  --calibrate_temperature
+```
+
 Outputs:
 - `outputs/ablations/ablation_results_raw.csv`
 - `outputs/ablations/ablation_results_mean_std.csv`
@@ -164,6 +198,8 @@ Use `notebooks/colab_ddi_gat.py` as a Colab cell-style notebook (`# %%` cells). 
 - Deterministic-ish backend settings where possible
 - Saved TDC splits to `outputs/splits/*.csv`
 - Graph featurization cache by canonical SMILES hash
+- Drug feature caches (`ecfp`, `physchem`, `maccs`) by canonical SMILES hash
+- Train-only physchem scaler persisted to `outputs/drug_features/physchem_scaler.json`
 - Version-pinned `requirements.txt`
 
 ## Limitations

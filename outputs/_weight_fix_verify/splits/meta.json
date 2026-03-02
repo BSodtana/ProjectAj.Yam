@@ -1,0 +1,10 @@
+{
+  "schema": [
+    "drug_a_smiles",
+    "drug_b_smiles",
+    "y"
+  ],
+  "split_impl_version": 2,
+  "split_seed": 42,
+  "split_strategy": "cold_drug"
+}
