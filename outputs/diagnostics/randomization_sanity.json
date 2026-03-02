@@ -6,15 +6,15 @@
     "weight_randomization_similarity_collapse": true
   },
   "means": {
-    "delta_del_base": 0.025625941544216845,
-    "delta_del_label_permuted": 0.0016873577188002864,
-    "delta_del_weight_randomized": 2.4771566106418724e-06,
-    "delta_ins_base": 0.009016153158603999,
-    "delta_ins_label_permuted": -0.0008896931437461078,
-    "delta_ins_weight_randomized": 2.1330942989871477e-06,
-    "random_baseline_unique_ratio": 0.99,
-    "rank_jaccard_label_permuted": 0.5666393655364244,
-    "rank_jaccard_weight_randomized": 0.4228824076250547
+    "delta_del_base": 0.031835207694816445,
+    "delta_del_label_permuted": -0.006001108344877676,
+    "delta_del_weight_randomized": 4.031681618591625e-06,
+    "delta_ins_base": 0.003856318599729901,
+    "delta_ins_label_permuted": -0.0050282488429634386,
+    "delta_ins_weight_randomized": 2.7842052708063968e-06,
+    "random_baseline_unique_ratio": 0.9925,
+    "rank_jaccard_label_permuted": 0.53015195588725,
+    "rank_jaccard_weight_randomized": 0.39864399231659287
   },
   "n_rows": 80
 }

@@ -477,11 +477,18 @@ def main() -> None:
     }
     save_json(metrics_sanity, diagnostics_dir / "metrics_sanity.json")
 
-    # Loss sanity on a concrete batch with class diversity when possible.
+    # Loss sanity on a concrete batch with weight diversity when possible.
     first_batch = None
+    has_weight_diversity = False
     for batch in test_loader:
         if batch is None:
             continue
+        if model.class_weights is not None and batch["y"].numel() > 0:
+            batch_weights = model.class_weights[batch["y"]]
+            if float(torch.max(batch_weights).item() - torch.min(batch_weights).item()) > 1e-12:
+                first_batch = batch
+                has_weight_diversity = True
+                break
         if batch["y"].numel() > 1 and int(torch.unique(batch["y"]).numel()) > 1:
             first_batch = batch
             break
@@ -514,6 +521,7 @@ def main() -> None:
         "objective_abs_diff": float(abs(objective_loss.item() - manual_objective.item())),
         "nll_loss_batch": float(nll_loss.item()),
         "objective_minus_nll_batch": float(objective_loss.item() - nll_loss.item()),
+        "batch_has_weight_diversity": bool(has_weight_diversity),
         "eval_objective_loss": float(test_eval["objective_loss"]),
         "eval_nll_loss": float(test_eval["nll_loss"]),
         "loss_config": {k: v for k, v in loss_cfg.items() if k not in {"class_counts_np", "class_weight_info_obj"}},
@@ -522,9 +530,19 @@ def main() -> None:
         raise AssertionError(
             f"model.loss_fn mismatch vs manual cross_entropy: abs_diff={loss_sanity['objective_abs_diff']:.6e}"
         )
-    if loss_cfg["use_class_weights"] or float(loss_cfg["label_smoothing"]) > 0.0:
+    if float(loss_cfg["label_smoothing"]) > 0.0:
         if abs(loss_sanity["objective_minus_nll_batch"]) <= 1e-8:
-            raise AssertionError("Expected objective_loss != nll_loss when class weights or label smoothing are enabled")
+            raise AssertionError("Expected objective_loss != nll_loss when label smoothing is enabled")
+    if loss_cfg["use_class_weights"]:
+        if loss_sanity["batch_has_weight_diversity"]:
+            if abs(loss_sanity["objective_minus_nll_batch"]) <= 1e-8:
+                raise AssertionError(
+                    "Expected objective_loss != nll_loss when class weights are enabled and batch target weights differ"
+                )
+        else:
+            LOGGER.warning(
+                "Skipped strict objective-vs-nll inequality assertion: selected batch has uniform target weights."
+            )
     LOGGER.info(
         "Loss sanity | objective=%.6f nll=%.6f delta=%.6f",
         loss_sanity["objective_loss_batch"],
