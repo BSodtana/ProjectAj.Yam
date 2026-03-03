@@ -21,7 +21,13 @@ from ddigat.data.splits import DDIPairDataset, make_pair_dataloader, subsample_d
 from ddigat.data.tdc_ddi import load_tdc_drugbank_ddi
 from ddigat.model.pair_model import DDIPairModel
 from ddigat.train.loop import eval_epoch
-from ddigat.utils.class_weights import assert_class_weight_sanity, compute_class_counts, compute_class_weights
+from ddigat.utils.class_weights import (
+    assert_class_weight_sanity,
+    compute_class_counts,
+    compute_class_priors,
+    compute_class_weights,
+    compute_tail_class_ids,
+)
 from ddigat.utils.calibration import apply_temperature, fit_temperature
 from ddigat.utils.io import torch_load
 from ddigat.utils.logging import get_logger
@@ -54,6 +60,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--physchem_dim", type=int, default=0, help="0=auto from checkpoint/extractor")
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
+    p.add_argument("--logit_adjust_tau", type=float, default=None, help="Override checkpoint logit-adjust tau for evaluation.")
     return p.parse_args()
 
 
@@ -177,11 +184,19 @@ def main() -> None:
     class_weight_eps = float(_cfg_get("class_weight_eps", 1e-12))
     class_counts_cfg = _cfg_get("class_counts", None)
     label_smoothing = float(_cfg_get("label_smoothing", 0.0))
+    logit_adjust_tau = float(_cfg_get("logit_adjust_tau", 0.0))
+    logit_adjust_eps = float(_cfg_get("logit_adjust_eps", 1e-12))
+    if args.logit_adjust_tau is not None:
+        logit_adjust_tau = float(args.logit_adjust_tau)
+    if float(logit_adjust_tau) > 0.0 and str(args.split_strategy) != "cold_drug":
+        raise ValueError("Logit adjustment evaluation expects split_strategy='cold_drug'.")
+    if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
+        class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
+    else:
+        class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+    _, log_priors = compute_class_priors(class_counts, eps=logit_adjust_eps)
+    tail_ids = compute_tail_class_ids(class_counts, fraction=0.2, include_zero_count=True)
     if use_class_weights:
-        if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
-            class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
-        else:
-            class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
         class_weight_info = compute_class_weights(
             class_counts,
             method=class_weight_method,
@@ -203,13 +218,22 @@ def main() -> None:
         class_weights = class_weight_info.weights
     else:
         class_weights = None
-    model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
+    model.set_loss_params(
+        class_weights=class_weights,
+        label_smoothing=label_smoothing,
+        logit_adjust_tau=logit_adjust_tau,
+        logit_adjust_log_pi=torch.tensor(log_priors, dtype=torch.float32),
+    )
     LOGGER.info(
-        "Evaluation objective restored | use_class_weights=%s method=%s normalize=%s label_smoothing=%.4f",
+        "Evaluation objective restored | use_class_weights=%s method=%s normalize=%s label_smoothing=%.4f logit_adjust_tau=%.4f eps=%.1e tail_k=%d/%d",
         use_class_weights,
         class_weight_method,
         class_weight_normalize,
         label_smoothing,
+        float(logit_adjust_tau),
+        float(logit_adjust_eps),
+        int(tail_ids.size),
+        int(model.num_classes),
     )
 
     cache = GraphCache(output_dir=args.output_dir)
@@ -258,11 +282,13 @@ def main() -> None:
         device=device,
         amp_enabled=True,
         collect_logits=args.calibrate_temperature,
+        train_class_counts=class_counts,
     )
     uncalibrated = evaluate_multiclass_metrics(
         y_true=test_eval["y_true"],
         y_prob=test_eval["y_prob"],
         ece_bins=args.ece_bins,
+        train_class_counts=class_counts,
     )
     uncalibrated["macro_f1_present_only"] = float(uncalibrated["macro_f1"])
     uncalibrated["kappa"] = float(uncalibrated["cohen_kappa"])
@@ -281,6 +307,14 @@ def main() -> None:
             "class_weight_clip_max": class_weight_clip_max,
             "class_weight_eps": class_weight_eps,
             "label_smoothing": label_smoothing,
+            "logit_adjust_tau": float(logit_adjust_tau),
+            "logit_adjust_eps": float(logit_adjust_eps),
+        },
+        "tail_definition": {
+            "fraction": 0.2,
+            "include_zero_count": True,
+            "tail_k": int(tail_ids.size),
+            "tail_class_ids": [int(v) for v in tail_ids.tolist()],
         },
         "uncalibrated": _to_float_dict(uncalibrated),
         "summary": {
@@ -291,6 +325,7 @@ def main() -> None:
             "accuracy": float(uncalibrated["accuracy"]),
             "kappa": float(uncalibrated["kappa"]),
             "macro_pr_auc_ovr": float(uncalibrated["macro_pr_auc_ovr"]),
+            "tail_macro_pr_auc_ovr": float(uncalibrated.get("tail_macro_pr_auc_ovr", float("nan"))),
             "macro_roc_auc_ovr": float(uncalibrated["macro_roc_auc_ovr"]),
         },
     }
@@ -317,6 +352,7 @@ def main() -> None:
             y_true=test_eval["y_true"],
             y_prob=calibrated_prob,
             ece_bins=args.ece_bins,
+            train_class_counts=class_counts,
         )
         calibrated["macro_f1_present_only"] = float(calibrated["macro_f1"])
         calibrated["kappa"] = float(calibrated["cohen_kappa"])
@@ -339,6 +375,12 @@ def main() -> None:
     print(f"cohen_kappa={uncalibrated['cohen_kappa']:.6f}")
     print(f"macro_roc_auc_ovr={uncalibrated['macro_roc_auc_ovr']:.6f}")
     print(f"macro_pr_auc_ovr={uncalibrated['macro_pr_auc_ovr']:.6f}")
+    print(f"tail_macro_pr_auc_ovr={uncalibrated.get('tail_macro_pr_auc_ovr', float('nan')):.6f}")
+    print(f"n_classes_total={int(uncalibrated.get('n_classes_total', 0))}")
+    print(f"n_classes_scored={int(uncalibrated.get('n_classes_scored', 0))}")
+    print(f"n_classes_missing_pos={int(uncalibrated.get('n_classes_missing_pos', 0))}")
+    print(f"n_classes_missing_neg={int(uncalibrated.get('n_classes_missing_neg', 0))}")
+    print(f"tail_n_classes_scored={int(uncalibrated.get('tail_n_classes_scored', 0))}")
     print(f"ece={uncalibrated['ece']:.6f}")
     print(f"brier_score={uncalibrated['brier_score']:.6f}")
     print(f"objective_loss={uncalibrated['objective_loss']:.6f}")

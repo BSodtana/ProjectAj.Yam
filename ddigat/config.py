@@ -52,6 +52,8 @@ class TrainConfig:
     class_weight_eps: float = 1e-12
     class_counts: list[int] | None = None
     label_smoothing: float = 0.0
+    logit_adjust_tau: float = 0.0
+    logit_adjust_eps: float = 1e-12
     split_strategy: str = "cold_drug"
     split_seed: int = 42
     training_start_unix: float | None = None

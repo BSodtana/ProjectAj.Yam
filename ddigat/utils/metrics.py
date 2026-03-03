@@ -13,6 +13,7 @@ from sklearn.metrics import (
 )
 
 from ddigat.utils.logging import get_logger
+from ddigat.utils.class_weights import compute_tail_class_ids
 
 
 LOGGER = get_logger(__name__)
@@ -50,6 +51,7 @@ def _safe_macro_ovr_metric(
     y_prob: np.ndarray,
     scorer,
     metric_name: str,
+    class_ids: list[int] | np.ndarray | None = None,
 ) -> MacroMetricResult:
     _validate_classification_arrays(y_true=y_true, y_prob=y_prob, metric_name=metric_name)
 
@@ -59,7 +61,11 @@ def _safe_macro_ovr_metric(
     included: list[int] = []
     excluded: list[int] = []
     scores: list[float] = []
-    for c in range(n_classes):
+    if class_ids is None:
+        class_iter = list(range(n_classes))
+    else:
+        class_iter = [int(c) for c in class_ids]
+    for c in class_iter:
         y_bin = (y_true == c).astype(int)
         pos = int(y_bin.sum())
         neg = int((1 - y_bin).sum())
@@ -189,10 +195,19 @@ def evaluate_multiclass_metrics(
     y_prob: np.ndarray,
     ece_bins: int = 15,
     include_ovr_details: bool = False,
+    train_class_counts: np.ndarray | None = None,
+    tail_fraction: float = 0.2,
+    include_zero_count_tail: bool = True,
 ) -> Dict[str, Any]:
     _validate_classification_arrays(y_true=y_true, y_prob=y_prob, metric_name="evaluate_multiclass_metrics")
     y_true = y_true.astype(int)
     y_pred = np.argmax(y_prob, axis=1).astype(int)
+
+    n_classes = int(y_prob.shape[1])
+    pos_counts = np.bincount(y_true, minlength=n_classes).astype(np.int64)
+    neg_counts = int(y_true.shape[0]) - pos_counts
+    missing_pos_classes = np.where(pos_counts == 0)[0].astype(int).tolist()
+    missing_neg_classes = np.where(neg_counts == 0)[0].astype(int).tolist()
 
     out: dict[str, Any] = {
         "accuracy": multiclass_accuracy(y_true, y_pred),
@@ -202,6 +217,9 @@ def evaluate_multiclass_metrics(
         "brier_score": multiclass_brier_score(y_true, y_prob),
         "ece": multiclass_ece(y_true, y_prob, n_bins=ece_bins),
         "nll": multiclass_nll_from_probs(y_true, y_prob),
+        "n_classes_total": n_classes,
+        "n_classes_missing_pos": int(len(missing_pos_classes)),
+        "n_classes_missing_neg": int(len(missing_neg_classes)),
     }
     try:
         roc_res = multiclass_macro_roc_auc_ovr_result(y_true, y_prob)
@@ -218,13 +236,52 @@ def evaluate_multiclass_metrics(
     try:
         pr_res = multiclass_macro_pr_auc_ovr_result(y_true, y_prob)
         out["macro_pr_auc_ovr"] = pr_res.value
+        out["n_classes_scored"] = int(len(pr_res.included_classes))
         if include_ovr_details:
             out["macro_pr_auc_ovr_included_classes"] = pr_res.included_classes
             out["macro_pr_auc_ovr_excluded_classes"] = pr_res.excluded_classes
     except Exception as e:
         LOGGER.warning("macro_pr_auc_ovr failed: %s", e)
         out["macro_pr_auc_ovr"] = float("nan")
+        out["n_classes_scored"] = 0
         if include_ovr_details:
             out["macro_pr_auc_ovr_included_classes"] = []
             out["macro_pr_auc_ovr_excluded_classes"] = []
+
+    if train_class_counts is not None:
+        counts = np.asarray(train_class_counts, dtype=np.int64).reshape(-1)
+        if int(counts.size) != n_classes:
+            raise ValueError(f"train_class_counts size mismatch: expected {n_classes}, got {counts.size}")
+        tail_ids_np = compute_tail_class_ids(
+            counts=counts,
+            fraction=float(tail_fraction),
+            include_zero_count=bool(include_zero_count_tail),
+        )
+        tail_ids = [int(v) for v in tail_ids_np.tolist()]
+        out["tail_k"] = int(len(tail_ids))
+        out["tail_definition"] = (
+            f"bottom_{int(round(float(tail_fraction) * 100))}pct_train_support_"
+            f"{'including_zero' if include_zero_count_tail else 'positive_only'}"
+        )
+        out["tail_class_ids"] = tail_ids
+        try:
+            tail_res = _safe_macro_ovr_metric(
+                y_true=y_true,
+                y_prob=y_prob,
+                scorer=average_precision_score,
+                metric_name="tail_macro_pr_auc_ovr",
+                class_ids=tail_ids,
+            )
+            out["tail_macro_pr_auc_ovr"] = float(tail_res.value)
+            out["tail_n_classes_scored"] = int(len(tail_res.included_classes))
+            if include_ovr_details:
+                out["tail_macro_pr_auc_ovr_included_classes"] = tail_res.included_classes
+                out["tail_macro_pr_auc_ovr_excluded_classes"] = tail_res.excluded_classes
+        except Exception as e:
+            LOGGER.warning("tail_macro_pr_auc_ovr failed: %s", e)
+            out["tail_macro_pr_auc_ovr"] = float("nan")
+            out["tail_n_classes_scored"] = 0
+            if include_ovr_details:
+                out["tail_macro_pr_auc_ovr_included_classes"] = []
+                out["tail_macro_pr_auc_ovr_excluded_classes"] = []
     return out

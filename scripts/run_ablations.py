@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--class_weight_normalize", type=str, default="sample_mean", choices=["sample_mean", "mean_seen", "none"])
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument("--ablation_suite", type=str, default="default", choices=["default", "feature"])
+    p.add_argument("--include_maccs_ablation", action="store_true")
     p.add_argument("--baseline_use_class_weights", action="store_true")
     p.add_argument("--baseline_class_weight_method", type=str, default="inv_sqrt", choices=["inv_sqrt", "effective_num"])
     p.add_argument("--baseline_label_smoothing", type=float, default=0.0)
@@ -99,17 +101,50 @@ def _feature_isolation_ablations(args: argparse.Namespace) -> list[dict]:
         "calibrate": bool(args.calibrate_temperature),
         "label_smoothing": float(args.baseline_label_smoothing),
     }
-    return [
-        {**common, "name": "GAT-baseline", "use_ecfp_features": False, "use_physchem_features": False, "use_maccs_features": False},
-        {**common, "name": "GAT+ECFP", "use_ecfp_features": True, "use_physchem_features": False, "use_maccs_features": False},
-        {**common, "name": "GAT+Physchem", "use_ecfp_features": False, "use_physchem_features": True, "use_maccs_features": False},
-        {**common, "name": "GAT+MACCS", "use_ecfp_features": False, "use_physchem_features": False, "use_maccs_features": True},
-        {**common, "name": "GAT+ECFP+Physchem", "use_ecfp_features": True, "use_physchem_features": True, "use_maccs_features": False},
+    out = [
+        {**common, "name": "GAT-baseline", "use_ecfp_features": False, "use_physchem_features": False, "use_maccs_features": False, "logit_adjust_tau": 0.0},
+        {**common, "name": "GAT+ECFP", "use_ecfp_features": True, "use_physchem_features": False, "use_maccs_features": False, "logit_adjust_tau": 0.0},
     ]
+    for tau in [0.5, 1.0, 1.5, 2.0]:
+        out.append(
+            {
+                **common,
+                "name": f"GAT+ECFP+LA(tau={tau:.1f})",
+                "use_ecfp_features": True,
+                "use_physchem_features": False,
+                "use_maccs_features": False,
+                "logit_adjust_tau": float(tau),
+            }
+        )
+    if bool(args.include_maccs_ablation):
+        out.append(
+            {
+                **common,
+                "name": "GAT+MACCS",
+                "use_ecfp_features": False,
+                "use_physchem_features": False,
+                "use_maccs_features": True,
+                "logit_adjust_tau": 0.0,
+            }
+        )
+        for tau in [0.5, 1.0, 1.5, 2.0]:
+            out.append(
+                {
+                    **common,
+                    "name": f"GAT+MACCS+LA(tau={tau:.1f})",
+                    "use_ecfp_features": False,
+                    "use_physchem_features": False,
+                    "use_maccs_features": True,
+                    "logit_adjust_tau": float(tau),
+                }
+            )
+    return out
 
 
 def main() -> None:
     args = parse_args()
+    if str(args.split_strategy) != "cold_drug":
+        raise ValueError("LA ablations are supported for split_strategy='cold_drug' only.")
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
 
     if args.ablation_suite == "feature":
@@ -175,6 +210,7 @@ def main() -> None:
                     ]
                 )
             train_cmd.extend(["--label_smoothing", str(float(ab.get("label_smoothing", 0.0)))])
+            train_cmd.extend(["--logit_adjust_tau", str(float(ab.get("logit_adjust_tau", 0.0)))])
 
             use_ecfp = bool(ab.get("use_ecfp_features", args.use_ecfp_features))
             use_physchem = bool(ab.get("use_physchem_features", args.use_physchem_features))
@@ -252,6 +288,12 @@ def main() -> None:
         "cohen_kappa",
         "macro_roc_auc_ovr",
         "macro_pr_auc_ovr",
+        "tail_macro_pr_auc_ovr",
+        "n_classes_total",
+        "n_classes_scored",
+        "n_classes_missing_pos",
+        "n_classes_missing_neg",
+        "tail_n_classes_scored",
         "ece",
         "brier_score",
         "objective_loss",
@@ -262,6 +304,41 @@ def main() -> None:
     agg.columns = ["_".join(c).strip("_") for c in agg.columns.to_flat_index()]
     agg_csv = out_root / "ablation_results_mean_std.csv"
     agg.to_csv(agg_csv, index=False)
+
+    best_tau_rows: list[dict[str, object]] = []
+    score_rows = agg.to_dict(orient="records")
+    by_backbone: dict[str, list[dict]] = {}
+    for row in score_rows:
+        name = str(row["ablation"])
+        m = re.search(r"^(GAT\+(?:ECFP|MACCS))\+LA\(tau=([0-9.]+)\)$", name)
+        if not m:
+            continue
+        backbone = m.group(1)
+        tau = float(m.group(2))
+        by_backbone.setdefault(backbone, []).append({**row, "_tau": tau})
+    for backbone, rows in by_backbone.items():
+        rows_sorted = sorted(
+            rows,
+            key=lambda r: (
+                float(r.get("tail_macro_pr_auc_ovr_mean", float("-inf"))),
+                float(r.get("macro_pr_auc_ovr_mean", float("-inf"))),
+                float(r.get("macro_f1_mean", float("-inf"))),
+            ),
+            reverse=True,
+        )
+        best = rows_sorted[0]
+        best_tau_rows.append(
+            {
+                "backbone": backbone,
+                "selected_tau": float(best["_tau"]),
+                "selection_order": "tail_macro_pr_auc_ovr > macro_pr_auc_ovr > macro_f1",
+                "tail_macro_pr_auc_ovr_mean": float(best.get("tail_macro_pr_auc_ovr_mean", float("nan"))),
+                "macro_pr_auc_ovr_mean": float(best.get("macro_pr_auc_ovr_mean", float("nan"))),
+                "macro_f1_mean": float(best.get("macro_f1_mean", float("nan"))),
+            }
+        )
+    if best_tau_rows:
+        pd.DataFrame(best_tau_rows).to_csv(out_root / "la_tau_selection.csv", index=False)
 
     md_path = out_root / "ablation_table.md"
     with md_path.open("w", encoding="utf-8") as f:
@@ -280,6 +357,8 @@ def main() -> None:
     print(f"raw_results={raw_csv}")
     print(f"mean_std_results={agg_csv}")
     print(f"table_markdown={md_path}")
+    if best_tau_rows:
+        print(f"la_tau_selection={out_root / 'la_tau_selection.csv'}")
 
 
 if __name__ == "__main__":

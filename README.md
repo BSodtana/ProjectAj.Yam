@@ -91,7 +91,19 @@ Implementation note:
 - Uses PyTorch `cross_entropy` / `CrossEntropyLoss` semantics with `weight=` and `label_smoothing=`.
 - With `reduction="mean"`, weighted CE follows PyTorch’s weight-normalized mean behavior.
 - Effective-number weighting follows Cui et al. (2019), then mean-normalization and clipping.
-- Future option (not implemented): logit adjustment (Menon et al., 2020).
+- Logit adjustment (Menon et al., 2020) is available via `--logit_adjust_tau` and uses train-split priors.
+
+Logit adjustment examples:
+
+```bash
+# OFF (default)
+python scripts/train.py --data_dir ./data --output_dir ./outputs --logit_adjust_tau 0.0
+
+# ON
+python scripts/train.py --data_dir ./data --output_dir ./outputs \
+  --use_ecfp_features \
+  --logit_adjust_tau 1.0
+```
 
 Expected checkpoint:
 - `outputs/checkpoints/best.pt`
@@ -149,6 +161,11 @@ python scripts/run_ablations.py --data_dir ./data --output_dir ./outputs \
   --baseline_use_class_weights \
   --baseline_class_weight_method inv_sqrt \
   --calibrate_temperature
+
+# Optional MACCS LA sweep (off by default)
+python scripts/run_ablations.py --data_dir ./data --output_dir ./outputs \
+  --ablation_suite feature \
+  --include_maccs_ablation
 ```
 
 Outputs:

@@ -131,6 +131,8 @@ class DDIPairModel(nn.Module):
         self.num_classes = num_classes
         self.label_smoothing = 0.0
         self.class_weights: torch.Tensor | None = None
+        self.logit_adjust_tau = 0.0
+        self.logit_adjust_log_pi: torch.Tensor | None = None
 
     @staticmethod
     def build_pair_features(h_a: torch.Tensor, h_b: torch.Tensor) -> torch.Tensor:
@@ -203,12 +205,15 @@ class DDIPairModel(nn.Module):
         feat_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         logits = self.forward(graph_a, graph_b, feat_a=feat_a, feat_b=feat_b)
+        logits = self.adjust_logits(logits)
         return F.softmax(logits, dim=-1)
 
     def set_loss_params(
         self,
         class_weights: torch.Tensor | None = None,
         label_smoothing: float = 0.0,
+        logit_adjust_tau: float = 0.0,
+        logit_adjust_log_pi: torch.Tensor | None = None,
     ) -> None:
         if class_weights is not None:
             w = class_weights.detach().float().clone().reshape(-1)
@@ -222,8 +227,25 @@ class DDIPairModel(nn.Module):
         else:
             self.class_weights = None
         self.label_smoothing = float(label_smoothing)
+        self.logit_adjust_tau = float(logit_adjust_tau)
+        if logit_adjust_log_pi is not None:
+            log_pi = logit_adjust_log_pi.detach().float().clone().reshape(-1)
+            if int(log_pi.numel()) != int(self.num_classes):
+                raise ValueError(f"logit_adjust_log_pi must have shape ({self.num_classes},), got {tuple(log_pi.shape)}")
+            if not torch.isfinite(log_pi).all().item():
+                raise ValueError("logit_adjust_log_pi contains non-finite values")
+            self.logit_adjust_log_pi = log_pi
+        else:
+            self.logit_adjust_log_pi = None
+
+    def adjust_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        if abs(float(self.logit_adjust_tau)) <= 0.0 or self.logit_adjust_log_pi is None:
+            return logits
+        log_pi = self.logit_adjust_log_pi.to(device=logits.device, dtype=logits.dtype)
+        return logits + float(self.logit_adjust_tau) * log_pi
 
     def loss_fn(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        logits = self.adjust_logits(logits)
         weight = None
         if self.class_weights is not None:
             weight = self.class_weights.to(logits.device)

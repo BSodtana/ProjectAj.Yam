@@ -41,6 +41,51 @@ def compute_class_counts(y: np.ndarray, num_classes: int) -> np.ndarray:
     return np.bincount(labels, minlength=int(num_classes)).astype(np.int64)
 
 
+def compute_class_priors(
+    counts: np.ndarray,
+    eps: float = 1e-12,
+) -> tuple[np.ndarray, np.ndarray]:
+    counts_f = np.asarray(counts, dtype=np.float64).reshape(-1)
+    if counts_f.size == 0:
+        raise ValueError("counts must be non-empty")
+    if float(eps) <= 0.0:
+        raise ValueError(f"eps must be > 0, got {eps}")
+    denom = float(np.sum(counts_f) + float(eps) * float(counts_f.size))
+    if not np.isfinite(denom) or denom <= 0.0:
+        raise ValueError(f"Invalid denominator for class prior computation: {denom}")
+    priors = (counts_f + float(eps)) / denom
+    log_priors = np.log(priors)
+    if not np.isfinite(log_priors).all():
+        raise ValueError("log_priors contains non-finite values")
+    return priors.astype(np.float64), log_priors.astype(np.float64)
+
+
+def compute_tail_class_ids(
+    counts: np.ndarray,
+    fraction: float = 0.2,
+    include_zero_count: bool = True,
+) -> np.ndarray:
+    counts_i = np.asarray(counts, dtype=np.int64).reshape(-1)
+    if counts_i.size == 0:
+        raise ValueError("counts must be non-empty")
+    if not (0.0 < float(fraction) <= 1.0):
+        raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+
+    class_ids = np.arange(counts_i.size, dtype=np.int64)
+    if bool(include_zero_count):
+        eligible = class_ids
+    else:
+        eligible = class_ids[counts_i > 0]
+    if eligible.size == 0:
+        return np.asarray([], dtype=np.int64)
+
+    order = np.argsort(counts_i[eligible], kind="stable")
+    sorted_ids = eligible[order]
+    k = int(np.ceil(float(fraction) * float(counts_i.size)))
+    k = max(1, min(k, int(sorted_ids.size)))
+    return sorted_ids[:k].astype(np.int64)
+
+
 def compute_class_weights(
     counts: np.ndarray,
     method: str = "inv_sqrt",

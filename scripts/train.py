@@ -25,8 +25,10 @@ from ddigat.utils.class_weights import (
     assert_class_weight_sanity,
     class_counts_payload,
     class_weights_payload,
+    compute_class_priors,
     compute_class_counts,
     compute_class_weights,
+    compute_tail_class_ids,
 )
 from ddigat.utils.io import ensure_dir, save_json
 from ddigat.utils.logging import get_logger
@@ -68,6 +70,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--class_weight_clip_min", type=float, default=0.25)
     p.add_argument("--class_weight_clip_max", type=float, default=4.0)
     p.add_argument("--label_smoothing", type=float, default=0.0)
+    p.add_argument(
+        "--logit_adjust_tau",
+        type=float,
+        default=0.0,
+        help="Logit adjustment strength tau. 0.0 disables LA; logits become z + tau*log(pi_train).",
+    )
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
@@ -96,6 +104,8 @@ def resolve_device(device_arg: str) -> torch.device:
 
 def main() -> None:
     args = parse_args()
+    if float(args.logit_adjust_tau) > 0.0 and str(args.split_strategy) != "cold_drug":
+        raise ValueError("Logit adjustment is configured for cold_drug split only. Use --split_strategy cold_drug.")
     device = resolve_device(args.device)
     seed_everything(args.seed)
     ensure_dir(args.output_dir)
@@ -162,6 +172,7 @@ def main() -> None:
     cfg.train.class_weight_clip_min = float(args.class_weight_clip_min)
     cfg.train.class_weight_clip_max = float(args.class_weight_clip_max)
     cfg.train.label_smoothing = float(args.label_smoothing)
+    cfg.train.logit_adjust_tau = float(args.logit_adjust_tau)
     cfg.train.split_strategy = str(args.split_strategy)
     cfg.train.split_seed = int(args.split_seed)
     cfg.model.encoder_type = args.encoder_type
@@ -219,9 +230,28 @@ def main() -> None:
             if isinstance(loaded_stats, dict):
                 feature_diag["physchem_scaler"] = loaded_stats
         save_json(feature_diag, diagnostics_dir / "feature_cache.json")
-    class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
+    class_counts = compute_class_counts(train_ds.df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
     cfg.train.class_counts = [int(v) for v in class_counts.tolist()]
     save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "class_counts.json")
+    save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "train_counts.json")
+    priors, log_priors = compute_class_priors(class_counts, eps=float(cfg.train.logit_adjust_eps))
+    save_json(
+        {
+            "eps": float(cfg.train.logit_adjust_eps),
+            "num_classes": int(cfg.model.num_classes),
+            "priors": [float(v) for v in priors.tolist()],
+            "log_priors": [float(v) for v in log_priors.tolist()],
+        },
+        diagnostics_dir / "train_priors.json",
+    )
+    tail_ids = compute_tail_class_ids(class_counts, fraction=0.2, include_zero_count=True)
+    LOGGER.info(
+        "Logit adjustment config | tau=%.4f eps=%.1e | tail_k=%d/%d (bottom 20%% train support, including zero-count classes)",
+        float(args.logit_adjust_tau),
+        float(cfg.train.logit_adjust_eps),
+        int(tail_ids.size),
+        int(cfg.model.num_classes),
+    )
 
     class_weight_info = compute_class_weights(
         class_counts,
@@ -271,7 +301,13 @@ def main() -> None:
         )
     else:
         class_weights = None
-    model.set_loss_params(class_weights=class_weights, label_smoothing=float(args.label_smoothing))
+    log_pi_t = torch.tensor(log_priors, dtype=torch.float32)
+    model.set_loss_params(
+        class_weights=class_weights,
+        label_smoothing=float(args.label_smoothing),
+        logit_adjust_tau=float(args.logit_adjust_tau),
+        logit_adjust_log_pi=log_pi_t,
+    )
 
     loss_config = {
         "use_class_weights": bool(args.use_class_weights),
@@ -282,6 +318,8 @@ def main() -> None:
         "class_weight_clip_max": float(args.class_weight_clip_max),
         "class_weight_eps": float(cfg.train.class_weight_eps),
         "label_smoothing": float(args.label_smoothing),
+        "logit_adjust_tau": float(args.logit_adjust_tau),
+        "logit_adjust_eps": float(cfg.train.logit_adjust_eps),
         "num_classes": int(cfg.model.num_classes),
         "class_counts": [int(v) for v in class_counts.tolist()],
     }
@@ -313,6 +351,7 @@ def main() -> None:
         patience=args.patience,
         min_delta=0.0,
         amp_enabled=True,
+        train_class_counts=class_counts,
     )
 
     save_json({"history": fit_result["history"], "best_epoch": fit_result["best_epoch"], "best_metrics": fit_result["best_metrics"]}, Path(args.output_dir) / "training_history.json")

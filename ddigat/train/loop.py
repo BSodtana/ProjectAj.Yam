@@ -61,8 +61,9 @@ def train_one_epoch(
 
         with torch.cuda.amp.autocast(enabled=use_amp):
             logits = model(batch["graph_a"], batch["graph_b"], batch.get("feat_a"), batch.get("feat_b"))
+            logits_adj = model.adjust_logits(logits)
             objective_loss = model.loss_fn(logits, batch["y"])
-            plain_nll_loss = F.cross_entropy(logits, batch["y"], weight=None, label_smoothing=0.0, reduction="mean")
+            plain_nll_loss = F.cross_entropy(logits_adj, batch["y"], weight=None, label_smoothing=0.0, reduction="mean")
 
         if scaler is not None and use_amp:
             scaler.scale(objective_loss).backward()
@@ -124,6 +125,7 @@ def eval_epoch(
     device: torch.device,
     amp_enabled: bool = True,
     collect_logits: bool = False,
+    train_class_counts: np.ndarray | None = None,
 ) -> dict[str, Any]:
     model.eval()
     use_amp = bool(amp_enabled and device.type == "cuda")
@@ -143,9 +145,10 @@ def eval_epoch(
         batch = _move_batch_to_device(batch, device)
         with torch.cuda.amp.autocast(enabled=use_amp):
             logits = model(batch["graph_a"], batch["graph_b"], batch.get("feat_a"), batch.get("feat_b"))
+            logits_adj = model.adjust_logits(logits)
             objective_loss = model.loss_fn(logits, batch["y"])
-            nll_loss = F.cross_entropy(logits, batch["y"], reduction="mean")
-            probs = torch.softmax(logits, dim=-1)
+            nll_loss = F.cross_entropy(logits_adj, batch["y"], reduction="mean")
+            probs = torch.softmax(logits_adj, dim=-1)
         row_sum_err = float(torch.max(torch.abs(probs.sum(dim=-1) - 1.0)).item())
         if row_sum_err > 1e-5:
             raise AssertionError(f"Softmax rows must sum to ~1.0, max_abs_err={row_sum_err:.6e}")
@@ -157,7 +160,7 @@ def eval_epoch(
         y_true_all.append(batch["y"].detach().cpu().numpy())
         y_prob_all.append(probs.detach().cpu().numpy())
         if collect_logits:
-            y_logits_all.append(logits.detach().cpu().numpy())
+            y_logits_all.append(logits_adj.detach().cpu().numpy())
         pair_ids_all.extend(batch["meta"]["pair_ids"])
 
     if total_samples == 0:
@@ -176,7 +179,7 @@ def eval_epoch(
     }
     if collect_logits:
         metrics["y_logits"] = np.concatenate(y_logits_all, axis=0)
-    metrics.update(evaluate_multiclass_metrics(y_true=y_true, y_prob=y_prob))
+    metrics.update(evaluate_multiclass_metrics(y_true=y_true, y_prob=y_prob, train_class_counts=train_class_counts))
     return metrics
 
 
@@ -194,6 +197,7 @@ def fit(
     patience: int = 5,
     min_delta: float = 0.0,
     amp_enabled: bool = True,
+    train_class_counts: np.ndarray | None = None,
 ) -> dict[str, Any]:
     checkpoint_path = Path(output_dir) / "checkpoints" / "best.pt"
     early_stopper = EarlyStopping(patience=patience, min_delta=min_delta, mode="max")
@@ -217,6 +221,7 @@ def fit(
             loader=valid_loader,
             device=device,
             amp_enabled=amp_enabled,
+            train_class_counts=train_class_counts,
         )
         row = {
             "epoch": epoch,

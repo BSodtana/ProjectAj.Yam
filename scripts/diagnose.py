@@ -31,6 +31,8 @@ from ddigat.utils.calibration import apply_temperature, fit_temperature
 from ddigat.utils.class_weights import (
     assert_class_weight_sanity,
     class_counts_payload,
+    compute_class_priors,
+    compute_tail_class_ids,
     class_weights_payload,
     compute_class_counts,
     compute_class_weights,
@@ -72,6 +74,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--class_weight_clip_min", type=float, default=None)
     p.add_argument("--class_weight_clip_max", type=float, default=None)
     p.add_argument("--label_smoothing", type=float, default=None)
+    p.add_argument("--logit_adjust_tau", type=float, default=None)
     p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
     return p.parse_args()
@@ -178,11 +181,19 @@ def restore_loss_params_from_checkpoint(
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
     if args.label_smoothing is not None:
         label_smoothing = float(args.label_smoothing)
+    logit_adjust_tau = float(train_cfg.get("logit_adjust_tau", 0.0))
+    if args.logit_adjust_tau is not None:
+        logit_adjust_tau = float(args.logit_adjust_tau)
+    if float(logit_adjust_tau) > 0.0 and str(args.split_strategy) != "cold_drug":
+        raise ValueError("Logit adjustment diagnostics expect split_strategy='cold_drug'.")
+    logit_adjust_eps = float(train_cfg.get("logit_adjust_eps", 1e-12))
 
     if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
         class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
     else:
         class_counts = compute_class_counts(train_df["y"].to_numpy(dtype=int), num_classes=model.num_classes)
+    _, log_priors = compute_class_priors(class_counts, eps=logit_adjust_eps)
+    tail_ids = compute_tail_class_ids(class_counts, fraction=0.2, include_zero_count=True)
     class_weight_info = compute_class_weights(
         class_counts,
         method=class_weight_method,
@@ -204,7 +215,12 @@ def restore_loss_params_from_checkpoint(
     class_weights = None
     if use_class_weights:
         class_weights = class_weight_info.weights
-    model.set_loss_params(class_weights=class_weights, label_smoothing=label_smoothing)
+    model.set_loss_params(
+        class_weights=class_weights,
+        label_smoothing=label_smoothing,
+        logit_adjust_tau=logit_adjust_tau,
+        logit_adjust_log_pi=torch.tensor(log_priors, dtype=torch.float32),
+    )
     serializable_cfg = {
         "use_class_weights": use_class_weights,
         "class_weight_method": class_weight_method,
@@ -214,6 +230,10 @@ def restore_loss_params_from_checkpoint(
         "class_weight_clip_max": class_weight_clip_max,
         "class_weight_eps": class_weight_eps,
         "label_smoothing": label_smoothing,
+        "logit_adjust_tau": float(logit_adjust_tau),
+        "logit_adjust_eps": float(logit_adjust_eps),
+        "tail_k": int(tail_ids.size),
+        "tail_class_ids": [int(v) for v in tail_ids.tolist()],
         "class_weight_min": None if class_weights is None else float(class_weights.min().item()),
         "class_weight_max": None if class_weights is None else float(class_weights.max().item()),
     }
@@ -814,12 +834,20 @@ def main() -> None:
         if bool(feature_cfg["use_physchem_features"]) and not feature_checks["physchem_all_finite"]:
             raise AssertionError("Non-finite physchem features found after standardization")
 
-    test_eval = eval_epoch(model, test_loader, device=device, amp_enabled=True, collect_logits=True)
+    test_eval = eval_epoch(
+        model,
+        test_loader,
+        device=device,
+        amp_enabled=True,
+        collect_logits=True,
+        train_class_counts=loss_cfg["class_counts_np"],
+    )
     metric_report = evaluate_multiclass_metrics(
         y_true=test_eval["y_true"],
         y_prob=test_eval["y_prob"],
         ece_bins=args.ece_bins,
         include_ovr_details=True,
+        train_class_counts=loss_cfg["class_counts_np"],
     )
     metric_report["macro_f1_present_only"] = float(metric_report["macro_f1"])
     metric_report["kappa"] = float(metric_report["cohen_kappa"])
@@ -876,25 +904,27 @@ def main() -> None:
     feature_effect_diag: dict[str, Any] | None = None
     with torch.no_grad():
         logits = model(first_batch["graph_a"], first_batch["graph_b"], first_batch.get("feat_a"), first_batch.get("feat_b"))
+        logits_adj = model.adjust_logits(logits)
         if feature_cache is not None and feature_cache.enabled and first_batch.get("feat_a") is not None and first_batch.get("feat_b") is not None:
             zeros_a = torch.zeros_like(first_batch["feat_a"])
             zeros_b = torch.zeros_like(first_batch["feat_b"])
             logits_zero = model(first_batch["graph_a"], first_batch["graph_b"], zeros_a, zeros_b)
-            abs_diff = torch.abs(logits - logits_zero)
-            pred_real = torch.argmax(logits, dim=-1)
-            pred_zero = torch.argmax(logits_zero, dim=-1)
+            logits_zero_adj = model.adjust_logits(logits_zero)
+            abs_diff = torch.abs(logits_adj - logits_zero_adj)
+            pred_real = torch.argmax(logits_adj, dim=-1)
+            pred_zero = torch.argmax(logits_zero_adj, dim=-1)
             argmax_change_pct = 100.0 * float(torch.mean((pred_real != pred_zero).float()).item())
             mean_abs_logit_diff = float(torch.mean(abs_diff).item())
-            num_classes = int(logits.size(-1))
+            num_classes = int(logits_adj.size(-1))
             topk = min(5, num_classes)
-            topk_real = torch.topk(logits, k=topk, dim=-1).indices
-            topk_zero = torch.topk(logits_zero, k=topk, dim=-1).indices
+            topk_real = torch.topk(logits_adj, k=topk, dim=-1).indices
+            topk_zero = torch.topk(logits_zero_adj, k=topk, dim=-1).indices
             topk_overlap = (topk_real.unsqueeze(-1) == topk_zero.unsqueeze(-2)).any(dim=-1).float().mean(dim=-1)
             topk_overlap_mean = float(torch.mean(topk_overlap).item())
             topk_full_match_pct = 100.0 * float(torch.mean((topk_overlap >= (1.0 - 1e-8)).float()).item())
 
-            prob_real = torch.softmax(logits, dim=-1).clamp_min(1e-12)
-            prob_zero = torch.softmax(logits_zero, dim=-1).clamp_min(1e-12)
+            prob_real = torch.softmax(logits_adj, dim=-1).clamp_min(1e-12)
+            prob_zero = torch.softmax(logits_zero_adj, dim=-1).clamp_min(1e-12)
             log_prob_real = torch.log(prob_real)
             log_prob_zero = torch.log(prob_zero)
             kl_real_to_zero = torch.sum(prob_real * (log_prob_real - log_prob_zero), dim=-1)
@@ -904,8 +934,8 @@ def main() -> None:
             symmetric_kl_mean = float(torch.mean(0.5 * (kl_real_to_zero + kl_zero_to_real)).item())
 
             if num_classes >= 2:
-                top2_real = torch.topk(logits, k=2, dim=-1).values
-                top2_zero = torch.topk(logits_zero, k=2, dim=-1).values
+                top2_real = torch.topk(logits_adj, k=2, dim=-1).values
+                top2_zero = torch.topk(logits_zero_adj, k=2, dim=-1).values
                 margin_real = top2_real[:, 0] - top2_real[:, 1]
                 margin_zero = top2_zero[:, 0] - top2_zero[:, 1]
                 margin_shift = margin_real - margin_zero
@@ -925,7 +955,7 @@ def main() -> None:
                 "symmetric_kl_mean": symmetric_kl_mean,
                 "mean_abs_margin_shift": mean_abs_margin_shift,
                 "mean_signed_margin_shift": mean_signed_margin_shift,
-                "n_samples": int(logits.size(0)),
+                "n_samples": int(logits_adj.size(0)),
             }
             if argmax_change_pct <= 0.0:
                 LOGGER.warning("Feature influence check: argmax did not change on this batch despite non-zero logit shift")
@@ -940,14 +970,14 @@ def main() -> None:
         objective_loss = model.loss_fn(logits, first_batch["y"])
         weight = model.class_weights.to(device) if model.class_weights is not None else None
         manual_objective = F.cross_entropy(
-            logits,
+            logits_adj,
             first_batch["y"],
             weight=weight,
             label_smoothing=float(model.label_smoothing),
             reduction="mean",
         )
         nll_loss = F.cross_entropy(
-            logits,
+            logits_adj,
             first_batch["y"],
             weight=None,
             label_smoothing=0.0,
@@ -992,7 +1022,14 @@ def main() -> None:
         feature_checks["feature_influence"] = feature_effect_diag
 
     # Calibration sanity.
-    valid_eval = eval_epoch(model, valid_loader, device=device, amp_enabled=True, collect_logits=True)
+    valid_eval = eval_epoch(
+        model,
+        valid_loader,
+        device=device,
+        amp_enabled=True,
+        collect_logits=True,
+        train_class_counts=loss_cfg["class_counts_np"],
+    )
     temperature = fit_temperature(valid_eval["y_logits"], valid_eval["y_true"], device=device, max_iter=100)
     calibrated_logits = apply_temperature(test_eval["y_logits"], temperature)
     calibrated_prob = torch.softmax(torch.tensor(calibrated_logits, dtype=torch.float32), dim=-1).numpy()
@@ -1001,6 +1038,7 @@ def main() -> None:
         y_prob=calibrated_prob,
         ece_bins=args.ece_bins,
         include_ovr_details=True,
+        train_class_counts=loss_cfg["class_counts_np"],
     )
     calibration_sanity = {
         "temperature": float(temperature),
@@ -1021,7 +1059,12 @@ def main() -> None:
 
     # Faithfulness + randomization sanity.
     weight_rand_model = _build_weight_randomized_copy(model, seed=args.seed + 11).to(device)
-    weight_rand_model.set_loss_params(class_weights=model.class_weights, label_smoothing=model.label_smoothing)
+    weight_rand_model.set_loss_params(
+        class_weights=model.class_weights,
+        label_smoothing=model.label_smoothing,
+        logit_adjust_tau=model.logit_adjust_tau,
+        logit_adjust_log_pi=model.logit_adjust_log_pi,
+    )
     permuted_model = _train_label_permuted_copy(
         model,
         loader=train_loader,
@@ -1030,7 +1073,12 @@ def main() -> None:
         steps=args.randomization_steps,
         lr=args.randomization_lr,
     )
-    permuted_model.set_loss_params(class_weights=model.class_weights, label_smoothing=model.label_smoothing)
+    permuted_model.set_loss_params(
+        class_weights=model.class_weights,
+        label_smoothing=model.label_smoothing,
+        logit_adjust_tau=model.logit_adjust_tau,
+        logit_adjust_log_pi=model.logit_adjust_log_pi,
+    )
 
     faith_rows: list[dict[str, Any]] = []
     n_done = 0
