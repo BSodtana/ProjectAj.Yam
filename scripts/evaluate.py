@@ -58,8 +58,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ecfp_bits", type=int, default=2048)
     p.add_argument("--ecfp_radius", type=int, default=2)
     p.add_argument("--physchem_dim", type=int, default=0, help="0=auto from checkpoint/extractor")
-    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
+    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "cold_drug_v2", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
+    p.add_argument("--cold_k", type=int, default=5)
+    p.add_argument("--cold_fold", type=int, default=0)
+    p.add_argument("--cold_protocol", type=str, default="s1", choices=["s1", "s2"])
+    p.add_argument("--cold_min_test_pairs", type=int, default=5000)
+    p.add_argument("--cold_min_test_labels", type=int, default=45)
+    p.add_argument("--cold_max_resamples", type=int, default=200)
+    p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     p.add_argument("--logit_adjust_tau", type=float, default=None, help="Override checkpoint logit-adjust tau for evaluation.")
     return p.parse_args()
 
@@ -163,6 +171,14 @@ def main() -> None:
         output_dir=args.output_dir,
         split_strategy=args.split_strategy,
         split_seed=args.split_seed,
+        cold_k=args.cold_k,
+        cold_fold=args.cold_fold,
+        cold_protocol=args.cold_protocol,
+        cold_min_test_pairs=args.cold_min_test_pairs,
+        cold_min_test_labels=args.cold_min_test_labels,
+        cold_max_resamples=args.cold_max_resamples,
+        cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:
         test_df = subsample_dataframe(test_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)
@@ -188,8 +204,8 @@ def main() -> None:
     logit_adjust_eps = float(_cfg_get("logit_adjust_eps", 1e-12))
     if args.logit_adjust_tau is not None:
         logit_adjust_tau = float(args.logit_adjust_tau)
-    if float(logit_adjust_tau) > 0.0 and str(args.split_strategy) != "cold_drug":
-        raise ValueError("Logit adjustment evaluation expects split_strategy='cold_drug'.")
+    if float(logit_adjust_tau) > 0.0 and str(args.split_strategy) not in {"cold_drug", "cold_drug_v2"}:
+        raise ValueError("Logit adjustment evaluation expects split_strategy in {'cold_drug', 'cold_drug_v2'}.")
     if isinstance(class_counts_cfg, list) and len(class_counts_cfg) == int(model.num_classes):
         class_counts = np.asarray([int(v) for v in class_counts_cfg], dtype=np.int64)
     else:

@@ -213,11 +213,20 @@ Use `notebooks/colab_ddi_gat.py` as a Colab cell-style notebook (`# %%` cells). 
 
 - Fixed seeds (`random`, `numpy`, `torch`, `cuda`)
 - Deterministic-ish backend settings where possible
-- Saved TDC splits to `outputs/splits/*.csv`
+- Saved split artifacts:
+- `cold_drug` (v3): `outputs/splits/cold_drug_v3/seed_<seed>/k_<k>/fold_<fold>/*.csv`
+- `cold_drug_v2` (legacy): `outputs/splits/cold_drug_v2/*.csv`
+- `tdc`: `outputs/splits/tdc/*.csv`
 - Graph featurization cache by canonical SMILES hash
 - Drug feature caches (`ecfp`, `physchem`, `maccs`) by canonical SMILES hash
 - Train-only physchem scaler persisted to `outputs/drug_features/physchem_scaler.json`
 - Version-pinned `requirements.txt`
+
+Cold-drug v3 defaults:
+- Group-aware unordered-pair splitting with ambiguity filtering (`drop_conflicts`)
+- Degree-aware drug-to-fold assignment (`k=5` by default)
+- S1 fold construction (`valid=(f+1)%k`, `test=f`) with leakage assertions
+- Fold report written to `cold_drug_kfold_report.json` beside fold artifacts
 
 ## Limitations
 

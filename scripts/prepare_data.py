@@ -31,8 +31,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3)  # kept for interface consistency
     p.add_argument("--device", type=str, default="cpu")  # kept for interface consistency
     p.add_argument("--limit", type=int, default=None, help="Limit rows per split for smoke tests.")
-    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
+    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "cold_drug_v2", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
+    p.add_argument("--cold_k", type=int, default=5)
+    p.add_argument("--cold_fold", type=int, default=0)
+    p.add_argument("--cold_protocol", type=str, default="s1", choices=["s1", "s2"])
+    p.add_argument("--cold_min_test_pairs", type=int, default=5000)
+    p.add_argument("--cold_min_test_labels", type=int, default=45)
+    p.add_argument("--cold_max_resamples", type=int, default=200)
+    p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     return p.parse_args()
 
 
@@ -45,6 +53,14 @@ def main() -> None:
         output_dir=args.output_dir,
         split_strategy=args.split_strategy,
         split_seed=args.split_seed,
+        cold_k=args.cold_k,
+        cold_fold=args.cold_fold,
+        cold_protocol=args.cold_protocol,
+        cold_min_test_pairs=args.cold_min_test_pairs,
+        cold_min_test_labels=args.cold_min_test_labels,
+        cold_max_resamples=args.cold_max_resamples,
+        cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:
         train_df = subsample_dataframe(train_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)

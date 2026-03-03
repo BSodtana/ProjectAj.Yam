@@ -36,8 +36,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ecfp_bits", type=int, default=2048)
     p.add_argument("--ecfp_radius", type=int, default=2)
     p.add_argument("--physchem_dim", type=int, default=0)
-    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
+    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "cold_drug_v2", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
+    p.add_argument("--cold_k", type=int, default=5)
+    p.add_argument("--cold_fold", type=int, default=0)
+    p.add_argument("--cold_protocol", type=str, default="s1", choices=["s1", "s2"])
+    p.add_argument("--cold_min_test_pairs", type=int, default=5000)
+    p.add_argument("--cold_min_test_labels", type=int, default=45)
+    p.add_argument("--cold_max_resamples", type=int, default=200)
+    p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     return p.parse_args()
 
 
@@ -143,8 +151,8 @@ def _feature_isolation_ablations(args: argparse.Namespace) -> list[dict]:
 
 def main() -> None:
     args = parse_args()
-    if str(args.split_strategy) != "cold_drug":
-        raise ValueError("LA ablations are supported for split_strategy='cold_drug' only.")
+    if str(args.split_strategy) not in {"cold_drug", "cold_drug_v2"}:
+        raise ValueError("LA ablations are supported for cold-drug split strategies only.")
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
 
     if args.ablation_suite == "feature":
@@ -194,7 +202,23 @@ def main() -> None:
                 args.split_strategy,
                 "--split_seed",
                 str(args.split_seed),
+                "--cold_k",
+                str(args.cold_k),
+                "--cold_fold",
+                str(args.cold_fold),
+                "--cold_protocol",
+                str(args.cold_protocol),
+                "--cold_min_test_pairs",
+                str(args.cold_min_test_pairs),
+                "--cold_min_test_labels",
+                str(args.cold_min_test_labels),
+                "--cold_max_resamples",
+                str(args.cold_max_resamples),
+                "--cold_dedupe_policy",
+                str(args.cold_dedupe_policy),
             ]
+            if bool(args.cold_write_legacy_flat_splits):
+                train_cmd.append("--cold_write_legacy_flat_splits")
             if args.limit is not None:
                 train_cmd.extend(["--limit", str(args.limit)])
             if bool(ab["use_class_weights"]):
@@ -250,7 +274,23 @@ def main() -> None:
                 args.split_strategy,
                 "--split_seed",
                 str(args.split_seed),
+                "--cold_k",
+                str(args.cold_k),
+                "--cold_fold",
+                str(args.cold_fold),
+                "--cold_protocol",
+                str(args.cold_protocol),
+                "--cold_min_test_pairs",
+                str(args.cold_min_test_pairs),
+                "--cold_min_test_labels",
+                str(args.cold_min_test_labels),
+                "--cold_max_resamples",
+                str(args.cold_max_resamples),
+                "--cold_dedupe_policy",
+                str(args.cold_dedupe_policy),
             ]
+            if bool(args.cold_write_legacy_flat_splits):
+                eval_cmd.append("--cold_write_legacy_flat_splits")
             if bool(ab["calibrate"]):
                 eval_cmd.append("--calibrate_temperature")
             if use_ecfp:

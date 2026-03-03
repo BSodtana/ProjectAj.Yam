@@ -76,8 +76,16 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Logit adjustment strength tau. 0.0 disables LA; logits become z + tau*log(pi_train).",
     )
-    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "tdc"])
+    p.add_argument("--split_strategy", type=str, default="cold_drug", choices=["cold_drug", "cold_drug_v2", "tdc"])
     p.add_argument("--split_seed", type=int, default=42)
+    p.add_argument("--cold_k", type=int, default=5)
+    p.add_argument("--cold_fold", type=int, default=0)
+    p.add_argument("--cold_protocol", type=str, default="s1", choices=["s1", "s2"])
+    p.add_argument("--cold_min_test_pairs", type=int, default=5000)
+    p.add_argument("--cold_min_test_labels", type=int, default=45)
+    p.add_argument("--cold_max_resamples", type=int, default=200)
+    p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     return p.parse_args()
 
 
@@ -104,8 +112,11 @@ def resolve_device(device_arg: str) -> torch.device:
 
 def main() -> None:
     args = parse_args()
-    if float(args.logit_adjust_tau) > 0.0 and str(args.split_strategy) != "cold_drug":
-        raise ValueError("Logit adjustment is configured for cold_drug split only. Use --split_strategy cold_drug.")
+    if float(args.logit_adjust_tau) > 0.0 and str(args.split_strategy) not in {"cold_drug", "cold_drug_v2"}:
+        raise ValueError(
+            "Logit adjustment is configured for cold-drug splits only. "
+            "Use --split_strategy cold_drug or --split_strategy cold_drug_v2."
+        )
     device = resolve_device(args.device)
     seed_everything(args.seed)
     ensure_dir(args.output_dir)
@@ -115,6 +126,14 @@ def main() -> None:
         output_dir=args.output_dir,
         split_strategy=args.split_strategy,
         split_seed=args.split_seed,
+        cold_k=args.cold_k,
+        cold_fold=args.cold_fold,
+        cold_protocol=args.cold_protocol,
+        cold_min_test_pairs=args.cold_min_test_pairs,
+        cold_min_test_labels=args.cold_min_test_labels,
+        cold_max_resamples=args.cold_max_resamples,
+        cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:
         train_df = subsample_dataframe(train_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)
@@ -175,6 +194,14 @@ def main() -> None:
     cfg.train.logit_adjust_tau = float(args.logit_adjust_tau)
     cfg.train.split_strategy = str(args.split_strategy)
     cfg.train.split_seed = int(args.split_seed)
+    cfg.train.cold_k = int(args.cold_k)
+    cfg.train.cold_fold = int(args.cold_fold)
+    cfg.train.cold_protocol = str(args.cold_protocol)
+    cfg.train.cold_min_test_pairs = int(args.cold_min_test_pairs)
+    cfg.train.cold_min_test_labels = int(args.cold_min_test_labels)
+    cfg.train.cold_max_resamples = int(args.cold_max_resamples)
+    cfg.train.cold_dedupe_policy = str(args.cold_dedupe_policy)
+    cfg.train.cold_write_legacy_flat_splits = bool(args.cold_write_legacy_flat_splits)
     cfg.model.encoder_type = args.encoder_type
     cfg.model.hidden_dim = args.hidden_dim
     cfg.model.out_dim = args.out_dim

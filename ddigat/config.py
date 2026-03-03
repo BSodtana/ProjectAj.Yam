@@ -56,6 +56,14 @@ class TrainConfig:
     logit_adjust_eps: float = 1e-12
     split_strategy: str = "cold_drug"
     split_seed: int = 42
+    cold_k: int = 5
+    cold_fold: int = 0
+    cold_protocol: str = "s1"
+    cold_min_test_pairs: int = 5000
+    cold_min_test_labels: int = 45
+    cold_max_resamples: int = 200
+    cold_dedupe_policy: str = "keep_all"
+    cold_write_legacy_flat_splits: bool = False
     training_start_unix: float | None = None
 
 
