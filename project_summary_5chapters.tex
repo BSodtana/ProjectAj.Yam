@@ -1,0 +1,120 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={Project Summary: Interpretable GAT for Multi-Typed Drug-Drug Interaction},
+  pdfauthor={Codex Generated Summary}
+}
+
+\onehalfspacing
+
+\titleformat{\chapter}[display]
+  {\bfseries\Large}
+  {Chapter \thechapter}
+  {0.5em}
+  {\Huge}
+
+\title{Project Summary:\\Interpretable GAT for Multi-Typed Drug-Drug Interaction Prediction}
+\author{Generated from repository artifacts in ProjectAj.Yam}
+\date{March 7, 2026}
+
+\begin{document}
+
+\maketitle
+\pagenumbering{roman}
+
+\begin{abstract}
+This document summarizes the latest project baseline stored in \texttt{outputs/baseline\_v4} of the \texttt{ProjectAj.Yam} repository. The task is multi-class drug-drug interaction prediction on the DrugBank dataset from Therapeutics Data Commons, covering 86 interaction types under a realistic cold-drug protocol. The corrected methodology used in this summary is the \texttt{GAT + ECFP + logit adjustment + DRW} configuration, stored as the five-fold run family \texttt{la\_tau\_0p5\_drw0.7\_ecfp1\_k5\_f*\_e20\_l0}. In this setup, each drug is represented as a molecular graph, enhanced with a 2048-bit ECFP fingerprint branch, trained with logit adjustment at \(\tau = 0.5\), and fine-tuned with deferred re-weighting during the last 30\% of training epochs. Across five folds, this baseline achieves mean accuracy of 0.6351, mean macro-F1 of 0.5032, mean macro PR-AUC of 0.5519, mean macro ROC-AUC of 0.9395, and mean kappa of 0.5579. The strongest fold reaches 0.6563 accuracy, 0.5644 macro-F1, 0.6220 macro PR-AUC, and 0.9519 macro ROC-AUC. These results make the baseline v4 family the correct reference point for summarizing the current state of the project.
+\end{abstract}
+
+\noindent\textbf{Keywords:} drug-drug interaction, graph attention network, cold-drug split, interpretability, multi-class classification
+
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+\chapter{Introduction}
+Drug-drug interaction (DDI) prediction is an important task in computational pharmacology because harmful or beneficial interactions can alter drug absorption, metabolism, therapeutic efficacy, and toxicity. The repository addresses this problem using a machine learning pipeline that predicts one of 86 DrugBank interaction types from a pair of drugs. The current project status should be described using the latest \texttt{baseline\_v4} artifacts, where the best-performing baseline combines graph attention networks, ECFP fingerprints, logit adjustment, and deferred re-weighting under cold-drug evaluation.
+
+The research problem is defined clearly. Each sample is a pair of drugs represented by their SMILES strings and a categorical interaction label. The stored split metadata and fold reports show that the pipeline works with the TDC DrugBank DDI resource and supports a cold-drug split implementation designed to reduce leakage. In the version-3 fold report used by the \texttt{baseline\_v4} runs, preprocessing starts from 191{,}808 rows and 191{,}402 unordered pair groups, then drops 406 conflicting pair groups and keeps 190{,}996 rows after policy filtering. This reflects a deliberate effort to create a defensible benchmark for generalization.
+
+The repository has four explicit technical objectives. First, it builds a reproducible end-to-end training and evaluation workflow using PyTorch Geometric. Second, it uses graph attention plus molecular fingerprint features to capture structural information in drug molecules through a shared Siamese encoder. Third, it studies generalization under realistic cold-drug splitting. Fourth, it mitigates long-tail label imbalance through logit adjustment and deferred re-weighting. Together, these objectives position the work as more than a basic classifier; they define a structured research framework for predictive performance under difficult biomedical constraints.
+
+This report is organized into five chapters. Chapter 1 introduces the project scope and motivation. Chapter 2 reviews the conceptual and technical background relevant to DDI prediction, graph neural networks, imbalance handling, and interpretability. Chapter 3 explains the methodology implemented in the repository, including data preparation, splitting, model design, training, and evaluation. Chapter 4 summarizes the main experimental findings and discusses their implications. Chapter 5 concludes the project and identifies future work directions.
+
+\chapter{Literature Review}
+The project sits at the intersection of molecular machine learning, biomedical relation prediction, and explainable artificial intelligence. In DDI prediction, drugs can be modeled as molecular structures, knowledge graph entities, or multimodal objects. This repository follows a molecular graph formulation, where atoms and bonds become nodes and edges. That choice is technically coherent because molecular graphs preserve local chemical structure while remaining compatible with message passing neural networks.
+
+Graph neural networks are a natural foundation for this task. The codebase supports multiple encoder families, specifically GAT, GCN, and GIN, which reflects standard design alternatives in graph representation learning. The primary emphasis is on the graph attention network. Attention mechanisms are useful in this setting because they provide adaptive weighting over graph neighborhoods and produce signals that can be reused for interpretation. The use of a Siamese structure with shared parameters for drug A and drug B is also appropriate because both inputs belong to the same molecular domain and should be processed with a common representation function.
+
+Another major issue in DDI prediction is label imbalance. The repository explicitly addresses this through configurable class weighting, clipped weighting schemes, deferred re-weighting hooks, label smoothing, and logit adjustment using train-split priors. The corrected baseline for this summary combines logit adjustment with DRW, which is a sound long-tail learning strategy because it lets the model learn stable shared features first and then increases focus on underrepresented classes later in training. The evaluation files reinforce this point by reporting not just overall metrics, but also tail-specific PR-AUC values over the bottom 20\% of training-support classes.
+
+Explainability is the final major theme in the repository. The project does not stop at attention visualization, which is often too weak to support strong claims. Instead, it adds deletion and insertion tests to estimate faithfulness and includes a GNNExplainer baseline for comparison. This is a stronger scientific design because it distinguishes between a visually plausible explanation and one that measurably affects model behavior. The code also computes stability-oriented quantities, such as attention stability under noise, which helps characterize explanation robustness.
+
+The gap addressed by this project is therefore clear. Many predictive pipelines focus only on accuracy under convenient splits, but this repository combines cold-drug evaluation, graph-level molecular learning, ECFP augmentation, logit adjustment, DRW, and reproducible artifact tracking in a single workflow. That integration is the project's main research value.
+
+\chapter{Research Methodology}
+\section*{Data Preparation and Split Design}
+The pipeline loads the DrugBank DDI dataset through TDC and represents each example as \texttt{drug\_a\_smiles}, \texttt{drug\_b\_smiles}, and label \texttt{y}. The default split strategy is \texttt{cold\_drug}, with support for legacy variants and TDC splits. The more advanced cold-drug v3 configuration uses group-aware unordered-pair splitting, ambiguity filtering, degree-aware assignment, and leakage assertions. For the \texttt{baseline\_v4} five-fold setup with seed 42 and protocol S1, the fold report shows a mean of 68{,}619.4 training rows, 45{,}978.2 validation rows, and 45{,}978.2 test rows. In the strongest fold \(f4\), the split contains 68{,}562 training rows, 46{,}038 validation rows, and 46{,}033 test rows with 85 labels present in the test partition. Guardrails enforce at least 5{,}000 test pairs and at least 45 labels in the test set, which strengthens the realism of the benchmark.
+
+\section*{Feature Construction}
+The baseline representation is a molecular graph cache built from all observed SMILES strings. In addition to graph topology, the repository supports optional feature branches: ECFP4 fingerprints, physicochemical descriptors, and MACCS keys. The corrected methodology in this summary uses the ECFP branch only. The fold-4 feature cache shows a 2048-bit ECFP configuration with radius 2, no physicochemical branch, and no MACCS branch. The cache records 1{,}341 saved ECFP vectors and a total feature dimension of 2048. This makes the feature pipeline efficient, reproducible, and chemically informative.
+
+\section*{Model Architecture}
+The core model is implemented as a Siamese DDI pair model. Each drug graph is passed through the same graph encoder, which can be configured as GAT, GCN, or GIN. The corrected methodology uses GAT together with an ECFP projection branch. The default settings use hidden dimension 64, output dimension 128, 3 graph layers, 4 attention heads, and 0.2 dropout. The encoded graph representations are fused with ECFP features before a pairwise interaction head outputs an 86-class probability distribution. This architecture is appropriate for pair classification because it combines learned graph structure with explicit circular fingerprint information.
+
+\section*{Training Procedure}
+Training is handled through a configurable command-line interface. Important settings include batch size 64, Adam-style optimization with learning rate \(10^{-3}\), weight decay \(10^{-5}\), 20 training epochs, and deterministic seeding for \texttt{random}, \texttt{numpy}, and \texttt{torch}. The configuration system records model, training, and path parameters as structured dataclasses, which improves experiment traceability.
+
+The repository also supports several imbalance-aware objectives. It can use inverse-square-root or effective-number class weighting with clipping, optional label smoothing, and logit adjustment based on train-split class priors. The corrected \texttt{baseline\_v4} methodology applies logit adjustment with \(\tau = 0.5\) and deferred re-weighting with ratio 0.7. In practice, the training history shows a two-stage schedule: epochs 1 to 14 run without DRW at learning rate 0.001, then epochs 15 to 20 activate DRW and reduce the learning rate to 0.0002. The class-weight diagnostics for the strongest fold use inverse-square-root weighting with clipping between 0.25 and 4.0, with 82 seen classes and 4 unseen classes. This is the correct training procedure for the current baseline.
+
+\section*{Evaluation and Explanation}
+Evaluation is comprehensive. The metrics include accuracy, macro-F1, micro-F1, Cohen's kappa, macro ROC-AUC, macro PR-AUC, expected calibration error, Brier score, objective loss, and plain negative log-likelihood. The evaluator also reports the number of classes that cannot be scored because of missing positives, which is essential in sparse multi-class settings. Tail-class performance is explicitly reported using tail macro PR-AUC. The most relevant evaluation artifacts for this summary are the five folds stored in \texttt{outputs/baseline\_v4/la\_tau\_0p5\_drw0.7\_ecfp1\_k5\_f*\_e20\_l0}.
+
+The repository also contains explanation modules, but they are not the primary source of evidence for the updated project summary requested here. The main validated contribution in the latest baseline is predictive performance under cold-drug evaluation using the corrected methodology.
+
+\chapter{Results and Discussion}
+\section*{Predictive Performance}
+The most relevant results are the five-fold \texttt{baseline\_v4} runs stored under \texttt{la\_tau\_0p5\_drw0.7\_ecfp1\_k5\_f*\_e20\_l0}. Across folds \(f0\) to \(f4\), the model achieves mean accuracy of 0.6351, mean macro-F1 of 0.5032, mean macro PR-AUC of 0.5519, mean macro ROC-AUC of 0.9395, and mean kappa of 0.5579. These values are materially stronger than the older runs and should be treated as the correct baseline summary for the current project.
+
+The strongest stored fold is \texttt{f4}. Its test summary reports accuracy of 0.6563, macro-F1 of 0.5644, micro-F1 of 0.6563, kappa of 0.5851, macro PR-AUC of 0.6220, tail macro PR-AUC of 0.3740, and macro ROC-AUC of 0.9519. These numbers show that the combined \texttt{GAT + ECFP + logit adjustment + DRW} design is effective both for overall discrimination and for rare-class retrieval.
+
+Training history for fold 4 shows that the best validation epoch is 18. At that point, validation accuracy reaches 0.6390, macro-F1 reaches 0.5246, macro PR-AUC reaches 0.5678, and macro ROC-AUC reaches 0.9417. The trajectory is informative: performance improves quickly in the initial phase and continues to improve after DRW is activated at epoch 15. This supports the methodology of delaying re-weighting until the representation is already stable.
+
+\section*{Impact of Design Choices}
+Comparison inside \texttt{baseline\_v4} shows that the design choices matter. The non-ECFP DRW family \texttt{la\_tau\_0p5\_drw0.7\_ecfp0\_k5\_f*\_e20\_l0} reaches fold accuracies between 0.5847 and 0.6128 and macro-F1 values between 0.4275 and 0.4996. In contrast, the ECFP-enabled family reaches accuracies between 0.6227 and 0.6563 and macro-F1 values between 0.4770 and 0.5644. This is direct evidence that ECFP improves the baseline under the same cold-drug, DRW, and logit-adjustment setting.
+
+The repository also contains older logit-adjusted runs without the full \texttt{baseline\_v4} configuration, such as \texttt{la\_tau\_1p5\_e15\_l50000}, which reports only 0.5451 accuracy and 0.3879 macro-F1. This is clearly below the newer five-fold ECFP plus DRW baseline. The implication is straightforward: the current project performance is defined by the combined effect of GAT, ECFP, logit adjustment, and deferred re-weighting rather than by any single component alone.
+
+\section*{Tail-Class and Explanation Analysis}
+Performance on rare interaction types remains difficult, but the corrected baseline is materially better than the older one. In the five-fold ECFP plus DRW family, mean tail macro PR-AUC is 0.2156, and the strongest fold reaches 0.3740. This is still below overall macro PR-AUC, so long-tail recognition remains a bottleneck, but the newer methodology clearly improves rare-class retrieval.
+
+Because this revision is required to match \texttt{baseline\_v4}, the primary emphasis in this chapter is the predictive baseline rather than the older explanation artifacts. The correct technical conclusion is that the latest project status is defined by a strong and repeatable five-fold cold-drug baseline using the specified methodology.
+
+\section*{Overall Discussion}
+The repository demonstrates solid engineering discipline. It includes reproducible training scripts, split persistence, graph and feature caching, diagnostics, tests for cold-drug splitting and logit adjustment, and a clear separation between data, model, training, evaluation, explanation, and visualization modules. That structure makes the project useful both as a research prototype and as a base for future extension.
+
+The main technical strengths are realistic evaluation, strong five-fold baseline results, modular feature support, and an effective imbalance-aware training schedule. The main limitations are also visible in the artifacts: tail performance is still below head-class performance, expected calibration error remains around 0.1966 on average across the ECFP plus DRW folds, and the task remains computationally expensive for large-scale CPU-only training. These are the right problems to have at this stage because they point directly to next-step research opportunities.
+
+\chapter{Conclusion and Future Work}
+This project delivers a complete and credible framework for multi-typed DDI prediction under realistic cold-drug generalization. The repository combines a Siamese graph attention architecture, ECFP molecular fingerprints, careful split construction, logit adjustment, deferred re-weighting, and comprehensive evaluation. Based on the \texttt{baseline\_v4} artifacts, the current five-fold baseline reaches mean accuracy of 0.6351, mean macro-F1 of 0.5032, mean macro PR-AUC of 0.5519, and mean macro ROC-AUC of 0.9395. The strongest visible fold achieves 0.6563 accuracy, 0.5644 macro-F1, and 0.9519 macro ROC-AUC.
+
+The project's most important contribution is not a single metric. It is the integration of performance, reproducibility, and interpretability in one pipeline. The codebase is structured well enough for repeated experimentation, and the reported outputs are detailed enough to support research reporting, internal benchmarking, or further thesis development.
+
+Future work should focus on four directions. First, tail-class performance should be improved beyond the current mean tail macro PR-AUC of 0.2156 through stronger long-tail objectives, re-sampling strategies, or hierarchical label modeling. Second, calibration should be tightened because expected calibration error remains around 0.1966 on average across the ECFP plus DRW folds. Third, multimodal drug representations could be added by combining molecular graphs with textual, target, pathway, or knowledge graph features. Fourth, the project could be extended from single-label interaction classification to severity estimation, recommendation support, or clinically constrained decision systems.
+
+In summary, the repository already constitutes a strong research-grade foundation. It solves a meaningful biomedical machine learning problem, uses realistic evaluation constraints, and produces results that are both quantitatively competitive and analytically interpretable.
+
+\end{document}

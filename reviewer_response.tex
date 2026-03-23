@@ -1,0 +1,356 @@
+%=============================================================
+% Response to Reviewers — Hyperparameter Selection Defense
+% Paper: Addressing the Long-Tail in Cold-Start DDI Prediction
+%        via Graph Attention and Fingerprint Fusion
+% Author: Buddharak Sodtana
+%=============================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[top=1in, bottom=1in, left=1.1in, right=1.1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{setspace}
+
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+
+% ---- colours ----
+\definecolor{reviewerbg}{RGB}{245,245,250}
+\definecolor{reviewerbar}{RGB}{90,100,180}
+\definecolor{authorbg}{RGB}{250,250,245}
+\definecolor{authorbar}{RGB}{60,150,90}
+\definecolor{warningbg}{RGB}{255,248,230}
+\definecolor{warningbar}{RGB}{210,150,30}
+
+% ---- reviewer comment box ----
+\newmdenv[
+  backgroundcolor=reviewerbg,
+  linecolor=reviewerbar,
+  linewidth=3pt,
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  innerleftmargin=10pt, innerrightmargin=8pt,
+  innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=8pt, skipbelow=4pt
+]{reviewerbox}
+
+% ---- author response box ----
+\newmdenv[
+  backgroundcolor=authorbg,
+  linecolor=authorbar,
+  linewidth=3pt,
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  innerleftmargin=10pt, innerrightmargin=8pt,
+  innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=4pt, skipbelow=8pt
+]{authorbox}
+
+% ---- risk/caution box ----
+\newmdenv[
+  backgroundcolor=warningbg,
+  linecolor=warningbar,
+  linewidth=3pt,
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  innerleftmargin=10pt, innerrightmargin=8pt,
+  innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=4pt, skipbelow=8pt
+]{cautionbox}
+
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titleformat{\subsection}{\normalsize\bfseries\itshape}{}{0em}{}
+\titlespacing*{\subsection}{0pt}{10pt}{3pt}
+
+\newcommand{\reviewer}[1]{\textbf{\textcolor{reviewerbar}{Reviewer:}} #1}
+\newcommand{\authorlabel}{\textbf{\textcolor{authorbar}{Response:}}}
+
+\setstretch{1.10}
+\setlist{nosep, leftmargin=*}
+
+%=============================================================
+\begin{document}
+%=============================================================
+
+\begin{center}
+  {\LARGE\bfseries Response to Reviewers}\\[0.5em]
+  {\large Addressing the Long-Tail in Cold-Start Drug--Drug Interaction\\
+  Prediction via Graph Attention and Fingerprint Fusion}\\[0.5em]
+  {\normalsize Buddharak Sodtana \quad|\quad
+  Advisor: Assoc.\ Prof.\ Prompong Sugunnasil}\\[0.3em]
+  {\small\textcolor{gray}{Manuscript revised March 2026}}
+\end{center}
+
+\medskip
+\noindent\rule{\textwidth}{0.4pt}
+\medskip
+
+\noindent\textit{%
+We thank the reviewers for their careful reading and constructive comments.
+Below we address each point in turn.
+Reviewer comments appear in blue-bordered boxes; our responses in green-bordered boxes.
+All section and table references are to the revised manuscript.}
+
+%=============================================================
+\section{Reviewer Comment C: Non-Standard Notation in Equation~3}
+%=============================================================
+
+\begin{reviewerbox}
+\reviewer{In Equation~3, you define the pair feature as
+$[\mathbf{h}_{\min} \| \mathbf{h}_{\max} \| (\mathbf{h}_{\max} - \mathbf{h}_{\min}) \| \mathbf{h}_a \odot \mathbf{h}_b]$.
+The term $\mathbf{h}_{\max} - \mathbf{h}_{\min}$ is simply the absolute difference
+$|\mathbf{h}_a - \mathbf{h}_b|$.
+Write it as the absolute difference.
+The current notation is unnecessarily convoluted and implies a directional
+subtraction that does not exist.}
+\end{reviewerbox}
+
+\begin{authorbox}
+\authorlabel\ We agree.
+Since $\mathbf{h}_{\min}$ and $\mathbf{h}_{\max}$ are defined element-wise,
+$\mathbf{h}_{\max} - \mathbf{h}_{\min}$ is indeed equal to $|\mathbf{h}_a - \mathbf{h}_b|$
+component by component.
+Using the difference-of-sorted-extrema form was needlessly indirect and could
+suggest a directed subtraction that has no meaning for an unordered drug pair.
+
+In the revised manuscript, Equation~3 now reads:
+\begin{equation}
+  \mathbf{z}_{ab} =
+  [\mathbf{h}_{\min} \| \mathbf{h}_{\max} \|
+   |\mathbf{h}_a - \mathbf{h}_b| \|
+   \mathbf{h}_a \odot \mathbf{h}_b],
+\end{equation}
+where $|\cdot|$ denotes the element-wise absolute difference.
+A one-line bridging statement is also added in the text:
+``Note that $\mathbf{h}_{\max} - \mathbf{h}_{\min} = |\mathbf{h}_a - \mathbf{h}_b|$
+element-wise,'' so readers can confirm the equivalence without consulting the code.
+\end{authorbox}
+
+%=============================================================
+\section{Reviewer Comment: Hyperparameter Selection (\S3.7, Table~2)}
+%=============================================================
+
+\begin{reviewerbox}
+\reviewer{The hyperparameter values in Table~2 (e.g., $\tau = 0.5$,
+learning rate $10^{-3}$, DRW start epoch 15) appear without justification.
+How were these chosen?
+Were they tuned on the test set?}
+\end{reviewerbox}
+
+\begin{authorbox}
+\authorlabel\
+We agree that the hyperparameters in Table~2 should not appear as unexplained
+``magic numbers.''
+In the revised manuscript we now state the selection procedure explicitly.
+
+The reported values were \emph{not} chosen from the full five-fold benchmark results
+and were \emph{not} tuned on the held-out test folds.
+Instead, we used a bounded development-fold search implemented in
+\texttt{scripts/tune\_baseline\_v4.py}.
+This search fixed the model family (\texttt{GAT + ECFP}) and screened a predefined
+grid on a single cold-drug development fold (fold~0), using validation performance
+only for selection.
+
+The screened search space was:
+\begin{itemize}
+  \item Logit-adjustment temperature
+        $\tau \in \{0.4,\;0.5,\;0.75\}$
+  \item Learning rate
+        $\in \{3\!\times\!10^{-4},\;5\!\times\!10^{-4},\;10^{-3},\;2\!\times\!10^{-3}\}$
+  \item DRW ratio $\in \{0.6,\;0.7,\;0.8\}$, with learning-rate drop $= 0.2\times$
+\end{itemize}
+
+This corresponds to 36 planned configurations; 31 completed runs are recorded in
+the saved sweep export
+(\texttt{outputs/tuning\_baseline\_v4\_single\_fold/sweep\_results\_31.json}).
+Configurations were ranked by the pre-declared priority order:
+\[
+  \text{tail macro PR-AUC}
+  \succ \text{macro PR-AUC}
+  \succ \text{macro-F1}
+  \succ \text{lower validation objective loss.}
+\]
+
+Under this procedure, the top-ranked configuration was $\tau = 0.5$,
+learning rate $10^{-3}$, and DRW ratio $0.7$ (DRW start epoch~15).
+The runner-up configuration with DRW ratio $0.8$ tied on the primary validation
+criteria and was also shortlisted.
+
+Architectural values such as 3 GAT layers, hidden dimension 64, output dimension 128,
+4 attention heads, and dropout~0.2 were held fixed during this search.
+These were treated as controlled baseline settings rather than exhaustively
+optimized architecture parameters.
+Our intent was to build a reproducible cold-drug benchmark under a fixed compute
+budget and a fixed optimization protocol, not to claim globally optimal tuning
+across all possible architectures.
+
+We therefore describe the study as using a \emph{structured but bounded}
+hyperparameter search.
+This is stronger than ad hoc trial-and-error, but it is not a full nested
+hyperparameter optimization study.
+We have clarified this limitation in the manuscript (revised \S3.7).
+\end{authorbox}
+
+%---------------------------------------------------------------
+\subsection{Follow-up: Why not tune on full data?}
+%---------------------------------------------------------------
+
+\begin{reviewerbox}
+\reviewer{Why not perform hyperparameter tuning on the full dataset to obtain
+stronger baselines?}
+\end{reviewerbox}
+
+\begin{authorbox}
+\authorlabel\
+We did not tune on the full benchmark because that would mix model selection
+with final evaluation.
+The correct protocol is to tune on a development split and keep the outer test
+folds untouched.
+Our choice of a single development fold plus a 100{,}000-row training cap was a
+compute-control decision, not an attempt to weaken baselines.
+Using the benchmark test folds for tuning would constitute evaluation leakage and
+inflate reported performance---precisely the methodological flaw we aim to
+correct relative to prior warm-start DDI studies.
+\end{authorbox}
+
+%---------------------------------------------------------------
+\subsection{Follow-up: Why were 3 layers and 128-dim not searched?}
+%---------------------------------------------------------------
+
+\begin{reviewerbox}
+\reviewer{The paper does not justify the choice of 3 GAT layers and 128-dimensional
+embeddings.
+Were these also swept?}
+\end{reviewerbox}
+
+\begin{authorbox}
+\authorlabel\
+Those architecture parameters were fixed \emph{a priori} for the controlled
+benchmark and were not part of the swept search space.
+We will revise the text to state that clearly rather than presenting them as if
+they were exhaustively optimized.
+
+The rationale for fixing architecture dimensions is reproducibility and compute
+control: running a full joint search over architecture $\times$ optimization
+hyperparameters would require nested cross-validation, which is infeasible at the
+scale of the 86-class cold-drug benchmark within a single workstation budget.
+This is an acknowledged limitation; we recommend a full nested HPO study as
+priority future work (revised \S5, Future Work).
+\end{authorbox}
+
+%---------------------------------------------------------------
+\subsection{Revised methodology paragraph (inserted in \S3.7)}
+%---------------------------------------------------------------
+
+The following paragraph has been added to \S3.7 (Experimental Configuration)
+of the revised manuscript:
+
+\begin{mdframed}[backgroundcolor=gray!8, linewidth=0pt,
+                 innerleftmargin=12pt, innerrightmargin=12pt,
+                 innertopmargin=8pt, innerbottommargin=8pt]
+\noindent\textit{Hyperparameter selection.}
+The final configuration was chosen by a bounded development-fold search rather
+than by tuning on the full five-fold benchmark.
+Specifically, we used a predefined single-fold screening procedure on cold fold~0
+with a training cap of 100{,}000 rows for compute efficiency, using
+validation-based model selection only.
+The search space was:
+logit-adjustment temperature $\tau \in \{0.4,\,0.5,\,0.75\}$,
+learning rate $\in \{3\!\times\!10^{-4},\;5\!\times\!10^{-4},\;10^{-3},\;2\!\times\!10^{-3}\}$,
+and deferred re-weighting ratio $\in \{0.6,\,0.7,\,0.8\}$ with
+learning-rate drop fixed at $0.2\times$.
+Configurations were ranked by validation tail macro PR-AUC, then macro PR-AUC,
+then macro-F1, and finally lower validation objective loss.
+This screening selected $\tau=0.5$, learning rate $10^{-3}$, and DRW ratio~$0.7$
+(start epoch~15).
+Architectural settings such as 3 GAT layers, hidden dimension~64, output
+dimension~128, 4 attention heads, and dropout~0.2 were held fixed during this
+search to maintain a controlled benchmark under a fixed compute budget.
+No outer-fold test set was used for hyperparameter tuning.
+\end{mdframed}
+
+%=============================================================
+\section{Concrete Evidence for Hyperparameter Procedure}
+%=============================================================
+
+The following artifacts are available in the repository to verify the procedure:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Artifact} & \textbf{Path} \\
+\midrule
+Search implementation  & \texttt{scripts/tune\_baseline\_v4.py} \\
+Raw sweep table        & \texttt{outputs/tuning\_baseline\_v4\_single\_fold/screen\_results\_raw.csv} \\
+Ranked export (31 runs)& \texttt{outputs/tuning\_baseline\_v4\_single\_fold/sweep\_results\_31.json} \\
+Shortlisted top-2 configs & \texttt{scripts/benchmark\_v6\_top2.sh} \\
+\bottomrule
+\end{tabular}
+\caption{Repository artifacts documenting the hyperparameter search procedure.}
+\end{table}
+
+\medskip
+\noindent Key numbers if challenged:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Item} & \textbf{Value} \\
+\midrule
+Planned grid size       & 36 configurations \\
+Completed saved runs    & 31 \\
+$\tau$ values swept     & $\{0.4,\;0.5,\;0.75\}$ \\
+Learning rates swept    & $\{3\!\times\!10^{-4},\;5\!\times\!10^{-4},\;10^{-3},\;2\!\times\!10^{-3}\}$ \\
+DRW ratios swept        & $\{0.6,\;0.7,\;0.8\}$ \\
+Ranking rule            & tail PR-AUC $\succ$ macro PR-AUC $\succ$ macro-F1 $\succ$ lower loss \\
+Top-ranked config       & $\tau=0.5$, lr $= 10^{-3}$, DRW ratio $= 0.7$, start epoch~15 \\
+Runner-up (tied on dev) & $\tau=0.5$, lr $= 10^{-3}$, DRW ratio $= 0.8$, start epoch~17 \\
+\bottomrule
+\end{tabular}
+\caption{Exact sweep parameters and results for reviewer verification.}
+\end{table}
+
+%=============================================================
+\section{Risks and Honest Limitations}
+%=============================================================
+
+\begin{cautionbox}
+\textbf{Caution --- What not to claim in the response:}
+\begin{itemize}
+  \item \textbf{Do not} claim ``rigorous full hyperparameter optimization.''
+        The code does not support this: only loss/schedule parameters were swept,
+        architecture was fixed, training was capped at 100k rows, and only one
+        development fold was used.
+  \item \textbf{Do not} say ``no tuning was done.''
+        That is also false: a real grid search was conducted and documented.
+\end{itemize}
+
+\medskip
+\noindent\textbf{The honest position is:}
+\begin{itemize}
+  \item Structured search for loss/schedule hyperparameters
+  \item Fixed architecture (controlled baseline, not optimized)
+  \item Single development fold (not nested cross-validation)
+  \item Compute-capped training subset (100k rows)
+\end{itemize}
+
+\medskip
+\noindent\textbf{If the reviewer insists on the strongest possible standard},
+the recommended next experiment is:
+\begin{enumerate}
+  \item Full nested HPO on inner validation only (architecture + optimization search)
+  \item Freeze the winner
+  \item Rerun all five outer test folds on the frozen configuration
+\end{enumerate}
+\end{cautionbox}
+
+\end{document}

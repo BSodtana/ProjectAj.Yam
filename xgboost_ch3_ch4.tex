@@ -1,0 +1,281 @@
+\chapter{Methodology}
+
+\section{Pipeline Overview}
+The benchmark contains two model families evaluated under the same cold-drug protocol: a neural Siamese graph model and a descriptor-based XGBoost baseline. The end-to-end pipeline consists of five stages: dataset loading, split generation, molecular feature construction, model fitting, and held-out evaluation. TDC is used to load the DrugBank DDI benchmark, RDKit is used for molecular canonicalization and ECFP generation, PyTorch and PyTorch Geometric are used for graph-based models, and XGBoost is used for the non-neural descriptor baseline. All models are evaluated on the same five outer folds so that architectural comparisons are made under identical train/validation/test partitions.
+
+\section{Dataset Preparation and Cold-Drug Split Design}
+The DrugBank DDI benchmark is loaded through TDC and standardized to three fields: \texttt{drug\_a\_smiles}, \texttt{drug\_b\_smiles}, and integer label \texttt{y}. The preprocessing pipeline first canonicalizes each row into unordered form by sorting the two canonical SMILES strings, then groups rows by unordered pair key and removes ambiguous pair groups that carry multiple labels. The resulting benchmark is a single-label unordered 86-class classification task.
+
+The preprocessing summary is as follows:
+\begin{itemize}
+\item Raw rows: 191{,}808
+\item Raw unordered pair groups: 191{,}402
+\item Conflicting pair groups removed: 406
+\item Conflicting rows removed: 812
+\item Clean rows retained: 190{,}996
+\end{itemize}
+
+The reported benchmark uses the project cold-drug splitter with implementation v3, protocol S1, \(k=5\) folds, and seed 42. First, each drug is assigned to exactly one fold by degree-aware balancing. For outer fold \(f\), fold \(f\) is used as test, fold \((f+1)\bmod 5\) is used as validation, and the remaining folds form training. A pair is assigned to training if both drugs belong to training folds, to validation if exactly one drug belongs to the validation fold and the other belongs to training, and to test if exactly one drug belongs to the test fold and the other belongs to training. All remaining pairs are excluded for that outer fold. This design enforces zero unordered pair overlap across train, validation, and test, while ensuring that each validation or test pair contains one drug unseen during training.
+
+\begin{table}[H]
+\centering
+\caption{Cold-drug split statistics.}
+\label{tab:split_stats}
+\begin{tabular}{lrr}
+\toprule
+Statistic & Mean Across 5 Folds & Fold \(f4\) \\
+\midrule
+Training rows & 68{,}619.4 & 68{,}562 \\
+Validation rows & 45{,}978.2 & 46{,}038 \\
+Test rows & 45{,}978.2 & 46{,}033 \\
+Excluded rows & 30{,}420.2 & 30{,}363 \\
+Test labels present & 81.8 & 85 \\
+Test labels absent from train & 4.2 & 3 \\
+Drugs assigned to fold & 341.2 & 342 \\
+Minimum required test pairs & 5{,}000 & 5{,}000 \\
+Minimum required test labels & 45 & 45 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The split totals do not sum to 190{,}996 because same-holdout and cross-holdout pairs are intentionally excluded in protocol S1. The current benchmark also does not guarantee full label coverage: depending on the fold, 3--6 test labels are absent from the corresponding training partition. This limitation is reported explicitly and is relevant for both the neural and XGBoost baselines.
+
+\section{Molecular Graph and Fingerprint Features}
+Each drug is parsed from SMILES into a molecular graph using RDKit. Invalid or zero-atom molecules are skipped during featurization. Bonds are stored as directed edges in both directions, and self-loops are added internally by the graph attention layers. Node features contain seven scalar attributes: atomic number, degree, aromaticity flag, formal charge, hybridization code, ring membership flag, and total hydrogen count. Edge features contain five scalar attributes: bond type, conjugation flag, aromaticity flag, ring membership flag, and stereo code.
+
+In addition to graph features, all models using descriptor input rely on ECFP4 fingerprints with radius 2 and 2048 bits. The implementation uses binary Morgan fingerprints with \texttt{useChirality=False}. For the neural model, the fingerprint is projected into a dense 128-dimensional representation. For the XGBoost baseline, the raw sparse fingerprint is retained in binary form.
+
+\section{Neural Siamese Graph Baseline}
+The main neural model uses a Siamese graph architecture in which both drugs are encoded by the same graph attention encoder. The encoder contains three edge-aware GAT layers with four attention heads. The first two layers use hidden dimension 64 with ELU activation and dropout 0.2, while the final layer outputs a 128-dimensional molecular embedding after global mean pooling.
+
+When ECFP fusion is enabled, each drug representation is formed by concatenating the graph embedding \(\mathbf{g}\) with a learned 128-dimensional fingerprint projection \(\mathbf{p}\), followed by a fusion block:
+\begin{equation}
+\mathbf{h}_a = \phi([\mathbf{g}_a \| \mathbf{p}_a]), \qquad
+\mathbf{h}_b = \phi([\mathbf{g}_b \| \mathbf{p}_b]),
+\end{equation}
+where \(\phi\) is a linear layer with ReLU activation and dropout.
+
+The pair head is permutation-invariant in implementation. Let
+\begin{equation}
+\mathbf{h}_{\min}=\min(\mathbf{h}_a,\mathbf{h}_b), \qquad
+\mathbf{h}_{\max}=\max(\mathbf{h}_a,\mathbf{h}_b).
+\end{equation}
+The pair representation is then
+\begin{equation}
+\mathbf{z}_{ab}=
+[\mathbf{h}_{\min} \| \mathbf{h}_{\max} \| (\mathbf{h}_{\max}-\mathbf{h}_{\min}) \| \mathbf{h}_a \odot \mathbf{h}_b],
+\end{equation}
+which yields a 512-dimensional feature vector. A classifier
+\[
+\texttt{Linear}(512,256)\rightarrow\texttt{ReLU}\rightarrow\texttt{Dropout}(0.2)\rightarrow\texttt{Linear}(256,86)
+\]
+maps this representation to 86 logits.
+
+\section{XGBoost + ECFP4 Descriptor Baseline}
+To provide a strong non-neural baseline under the same cold-drug folds, the benchmark includes an XGBoost multiclass classifier trained only on ECFP4 pair descriptors. This baseline tests how much performance can be obtained from fixed substructure fingerprints without graph message passing.
+
+Each drug is first canonicalized using RDKit, and the unordered pair is converted into a deterministic ordered pair by lexicographic sorting of the two canonical SMILES strings. Let \(\mathbf{f}(d)\in\{0,1\}^{2048}\) denote the binary ECFP4 fingerprint of drug \(d\). The pair feature vector is
+\begin{equation}
+\mathbf{x}_{ab} = [\mathbf{f}(d_{(1)}) \| \mathbf{f}(d_{(2)})] \in \{0,1\}^{4096},
+\end{equation}
+where \(d_{(1)}\) and \(d_{(2)}\) are the sorted canonical drugs in the pair. This representation is permutation-consistent because every unordered pair maps to a single canonical 4096-dimensional sparse vector.
+
+The XGBoost classifier uses the multiclass soft-probability objective with histogram-based tree growth. The fixed configuration used in the benchmark is:
+\begin{itemize}
+\item \texttt{n\_estimators} = 600
+\item learning rate = 0.05
+\item max depth = 8
+\item subsample = 0.8
+\item \texttt{colsample\_bytree} = 0.8
+\item \texttt{min\_child\_weight} = 1.0
+\item \(\lambda = 1.0\)
+\item tree method = \texttt{hist}
+\item early stopping rounds = 30
+\item class weights = not used
+\end{itemize}
+
+The same train/validation/test folds used by the neural benchmark are reused for XGBoost. Because some folds contain labels absent from training, XGBoost trains only on the set of labels observed in the training partition of that fold. Validation rows whose labels are absent from training are dropped from the early-stopping evaluation set, while test predictions are expanded back to the full 86-class space by assigning zero probability to train-unseen classes. This preserves full held-out evaluation while keeping the training procedure well-defined for a closed-set multiclass tree model. In the saved runs, XGBoost trains on 78--82 classes depending on the fold, drops an average of 23.6 validation rows per fold from early stopping, and encounters 68--287 test rows per fold whose labels are unseen in training. In the latest fold-\(f4\) run, the test split contains 68 rows across three labels unseen in training, namely classes 12, 64, and 85.
+
+\section{Long-Tail Objective for Neural Models}
+Class imbalance in the neural model is handled by logit adjustment and deferred re-weighting. Let \(\mathbf{s}\) denote the raw 86-way logits and \(\boldsymbol{\pi}\) the empirical training-set class prior. Logit adjustment is applied as
+\begin{equation}
+\tilde{\mathbf{s}}=\mathbf{s}+\tau \log \boldsymbol{\pi},
+\end{equation}
+with \(\tau=0.5\). Cross-entropy is then computed on the adjusted logits. During epochs 1--14, the neural model trains without class weights. From epoch 15 onward, deferred re-weighting activates with
+\begin{equation}
+w_c=\mathrm{clip}\left(\frac{1}{\sqrt{n_c+\epsilon}},\,0.25,\,4.0\right),
+\end{equation}
+where \(n_c\) is the number of training examples in class \(c\) and \(\epsilon=10^{-12}\). At the same transition point, the learning rate is reduced from \(10^{-3}\) to \(2\times 10^{-4}\). XGBoost does not use this long-tail objective and is instead reported as a descriptor-only baseline with standard multiclass optimization.
+
+\section{Experimental Configuration}
+All experiments use the same five cold-drug outer folds, the same split seed, and the same evaluation code. Neural checkpoints are selected by validation macro PR-AUC. XGBoost uses early stopping on the fold-specific validation split. Deterministic seeding is applied to Python, NumPy, and PyTorch; package versions are pinned in \texttt{requirements.txt}, including RDKit 2023.9.6, PyTorch 2.4.1, PyTorch Geometric 2.5.3, scikit-learn 1.5.1, and XGBoost 2.1.1.
+
+\begin{table}[H]
+\centering
+\caption{Neural model hyperparameters.}
+\label{tab:neural_hyperparams}
+\begin{tabular}{ll}
+\toprule
+Component & Configuration \\
+\midrule
+Graph encoder & GAT \\
+Node / edge feature dim & 7 / 5 \\
+GAT layers / heads & 3 / 4 \\
+Hidden / graph embedding dim & 64 / 128 \\
+Fingerprint & ECFP4, radius 2, 2048 bits \\
+Fingerprint projection & 128 \\
+Pair feature / classifier hidden & 512 / 256 \\
+Dropout & 0.2 \\
+Batch size / epochs & 64 / 20 \\
+Optimizer & Adam \\
+Learning rate & \(10^{-3}\rightarrow 2\times10^{-4}\) \\
+Weight decay & \(10^{-5}\) \\
+Early stopping & patience 5 \\
+Logit adjustment & \(\tau=0.5\) \\
+DRW start epoch & 15 \\
+Model selection metric & validation macro PR-AUC \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{XGBoost baseline hyperparameters.}
+\label{tab:xgboost_hyperparams}
+\begin{tabular}{ll}
+\toprule
+Component & Configuration \\
+\midrule
+Feature type & sorted concatenated ECFP4 \\
+Feature dimension & 4096 \\
+ECFP radius / bits & 2 / 2048 \\
+Objective & multiclass soft-probability \\
+\texttt{n\_estimators} & 600 \\
+Learning rate & 0.05 \\
+Max depth & 8 \\
+Subsample & 0.8 \\
+\texttt{colsample\_bytree} & 0.8 \\
+\texttt{min\_child\_weight} & 1.0 \\
+\(\lambda\) & 1.0 \\
+Tree method & \texttt{hist} \\
+Early stopping rounds & 30 \\
+Class weights & none \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Evaluation Metrics}
+Evaluation includes accuracy, macro-F1, micro-F1, Cohen's kappa, macro ROC-AUC, macro PR-AUC, expected calibration error (ECE), Brier score, objective loss, and negative log-likelihood. Accuracy, micro-F1, and kappa use argmax predictions over the predicted 86-class probability distribution. Macro ROC-AUC and macro PR-AUC are computed as one-vs-rest averages over classes that contain both positive and negative examples in the evaluated split. Macro PR-AUC uses \texttt{average\_precision\_score}. ECE uses 15 equal-width bins on max-softmax confidence, and the multiclass Brier score is the mean squared error between the predicted probability vector and the one-hot target vector. Tail macro PR-AUC is computed over the bottom 20\% of classes ranked by training support, including zero-count classes.
+
+Model selection for the neural runs uses validation macro PR-AUC. The XGBoost baseline uses validation loss internally for early stopping, but all reported performance numbers are taken from the held-out test folds only. This separation prevents test-fold leakage while keeping the comparison protocol identical across model families.
+
+\chapter{Results and Discussion}
+
+\section{Five-Fold Cold-Drug Performance}
+Table~\ref{tab:main_results} summarizes five-fold cold-drug performance across all baselines, including the added XGBoost + ECFP4 descriptor model. The strongest neural configuration remains \texttt{GAT+ECFP+LA+DRW}, which achieves the best overall discrimination with accuracy 0.6348, macro-F1 0.5007, macro ROC-AUC 0.9381, macro PR-AUC 0.5469, and tail macro PR-AUC 0.2246. However, the XGBoost baseline is notably competitive: it reaches macro PR-AUC 0.5416, macro-F1 0.4941, accuracy 0.6269, and tail macro PR-AUC 0.2174 under the same strict cold-drug protocol.
+
+\begin{table}[H]
+\centering
+\caption{Five-fold cold-drug performance including the XGBoost + ECFP4 baseline. Mean \(\pm\) std. Bold = best. Lower is better for ECE and Brier.}
+\label{tab:main_results}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+Model & Accuracy & Macro-F1 & Kappa & Macro ROC-AUC & Macro PR-AUC & Tail PR-AUC & ECE \(\downarrow\) & Brier \(\downarrow\) \\
+\midrule
+GAT only         & 0.5927{\scriptsize$\pm$.003} & 0.4212{\scriptsize$\pm$.012} & 0.5030{\scriptsize$\pm$.003} & 0.9173{\scriptsize$\pm$.004} & 0.4616{\scriptsize$\pm$.020} & 0.1648{\scriptsize$\pm$.040} & 0.1410{\scriptsize$\pm$.022} & 0.5827{\scriptsize$\pm$.011} \\
+GIN only         & 0.5757{\scriptsize$\pm$.008} & 0.4066{\scriptsize$\pm$.028} & 0.4797{\scriptsize$\pm$.009} & 0.9103{\scriptsize$\pm$.008} & 0.4463{\scriptsize$\pm$.028} & 0.1609{\scriptsize$\pm$.029} & 0.1160{\scriptsize$\pm$.009} & 0.5945{\scriptsize$\pm$.012} \\
+GAT+ECFP         & 0.6286{\scriptsize$\pm$.010} & 0.4825{\scriptsize$\pm$.030} & 0.5524{\scriptsize$\pm$.011} & 0.9286{\scriptsize$\pm$.009} & 0.5260{\scriptsize$\pm$.029} & 0.2142{\scriptsize$\pm$.063} & 0.1860{\scriptsize$\pm$.016} & 0.5642{\scriptsize$\pm$.013} \\
+GAT+ECFP+LA      & 0.6276{\scriptsize$\pm$.015} & 0.4915{\scriptsize$\pm$.026} & 0.5483{\scriptsize$\pm$.019} & 0.9352{\scriptsize$\pm$.012} & 0.5316{\scriptsize$\pm$.031} & 0.2163{\scriptsize$\pm$.067} & 0.1963{\scriptsize$\pm$.016} & 0.5704{\scriptsize$\pm$.022} \\
+XGBoost+ECFP4    & 0.6269{\scriptsize$\pm$.007} & 0.4941{\scriptsize$\pm$.032} & 0.5310{\scriptsize$\pm$.007} & 0.9230{\scriptsize$\pm$.013} & 0.5416{\scriptsize$\pm$.039} & 0.2174{\scriptsize$\pm$.098} & \textbf{0.0479{\scriptsize$\pm$.009}} & \textbf{0.5243{\scriptsize$\pm$.009}} \\
+GAT+ECFP+LA+DRW  & \textbf{0.6348{\scriptsize$\pm$.011}} & \textbf{0.5007{\scriptsize$\pm$.025}} & \textbf{0.5590{\scriptsize$\pm$.014}} & \textbf{0.9381{\scriptsize$\pm$.010}} & \textbf{0.5469{\scriptsize$\pm$.033}} & \textbf{0.2246{\scriptsize$\pm$.059}} & 0.1999{\scriptsize$\pm$.019} & 0.5663{\scriptsize$\pm$.021} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+The XGBoost row materially changes the interpretation of the benchmark. First, it strongly outperforms the graph-only neural baselines, showing that fixed structural descriptors remain highly competitive under a cold-drug protocol. Second, it remains close to the best neural model on the primary retrieval metrics: the five-fold mean gap to \texttt{GAT+ECFP+LA+DRW} is 0.79 percentage points in accuracy, 0.66 points in macro-F1, 0.53 points in macro PR-AUC, and 0.72 points in tail macro PR-AUC. Third, XGBoost is substantially better calibrated than every neural baseline, with ECE 0.0479 and Brier score 0.5243. This indicates that much of the transferable cold-drug signal is already captured by sparse ECFP descriptors. The neural model has slightly higher mean discrimination metrics, but those differences should not be interpreted as statistically established superiority without formal paired testing.
+
+The latest saved run also illustrates an important evaluation detail. In fold \(f4\), both macro PR-AUC and tail macro PR-AUC exclude class 30 from one-vs-rest scoring because the evaluation split does not contain the positive/negative support required for that class. This behavior follows the metric definition described in Chapter 3 and should be interpreted as a scoring constraint of the sparse label space rather than a software error.
+
+\section{Fold-Wise Performance of the Best Neural Model}
+Table~\ref{tab:fold_results} reports fold-wise test performance for \texttt{GAT+ECFP+LA+DRW}. Performance remains stable across the five folds, although fold \(f4\) is easier than the others because it contains stronger class coverage. This fold-level variance also helps explain why both the neural model and the XGBoost baseline achieve unusually high tail PR-AUC on fold \(f4\).
+
+\begin{table}[H]
+\centering
+\caption{Fold-wise test performance of GAT+ECFP+LA+DRW.}
+\label{tab:fold_results}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tabular}{lrrrrrr}
+\toprule
+Fold & Accuracy & Macro-F1 & Macro PR-AUC & Tail PR-AUC & Macro ROC-AUC & Kappa \\
+\midrule
+\(f0\) & 0.6325 & 0.4813 & 0.5643 & 0.1888 & 0.9464 & 0.5561 \\
+\(f1\) & 0.6251 & 0.4782 & 0.5101 & 0.1912 & 0.9368 & 0.5446 \\
+\(f2\) & 0.6388 & 0.5148 & 0.5260 & 0.1790 & 0.9409 & 0.5582 \\
+\(f3\) & 0.6227 & 0.4770 & 0.5371 & 0.1448 & 0.9215 & 0.5454 \\
+\(f4\) & 0.6563 & 0.5644 & 0.6220 & 0.3740 & 0.9519 & 0.5851 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\section{Descriptor Baseline Comparison}
+The XGBoost baseline deserves separate discussion because it is not a trivial comparator. Under cold-drug evaluation, it outperforms \texttt{GAT only}, \texttt{GIN only}, \texttt{GAT+ECFP}, and \texttt{GAT+ECFP+LA} on macro PR-AUC, while remaining close to the final \texttt{GAT+ECFP+LA+DRW} model. This means that a substantial fraction of the benchmark can be solved by strong substructure descriptors combined with a high-capacity tree ensemble.
+
+At the same time, the final neural model still matters, but the claim must be narrow. Relative to XGBoost on the five-fold benchmark, the best GAT-based system has slightly higher mean accuracy (0.6348 vs.\ 0.6269), macro-F1 (0.5007 vs.\ 0.4941), macro PR-AUC (0.5469 vs.\ 0.5416), macro ROC-AUC (0.9381 vs.\ 0.9230), tail macro PR-AUC (0.2246 vs.\ 0.2174), and kappa (0.5590 vs.\ 0.5310). XGBoost, however, remains far better calibrated, with substantially lower ECE and Brier score. Therefore, the benchmark does not support a strong claim that graph neural networks dominate descriptor baselines unconditionally. A more precise conclusion is that graph attention plus fingerprint fusion is competitive on global discrimination, while boosted trees on ECFP remain a highly competitive and better-calibrated reference.
+
+To test whether these fold-level differences are robust, an exact paired Wilcoxon signed-rank test was computed across the five fold pairs \(f0\)--\(f4\). Table~\ref{tab:wilcoxon_xgb} reports the resulting two-sided exact \(p\)-values. None of the comparisons reaches the conventional \(p<0.05\) threshold. The tail-class result is the most important: although the neural model has a slightly higher five-fold mean tail macro PR-AUC than XGBoost (0.2246 vs.\ 0.2174), the paired Wilcoxon test gives \(p=0.6250\). This means the observed tail gap is not statistically significant in the current benchmark and should not be presented as established superiority.
+
+\begin{table}[H]
+\centering
+\caption{Exact paired Wilcoxon signed-rank comparison between \texttt{GAT+ECFP+LA+DRW} and \texttt{XGBoost+ECFP4} across the five fold pairs. Lower is better for ECE and Brier.}
+\label{tab:wilcoxon_xgb}
+\begin{tabular}{lccc}
+\toprule
+Metric & Neural Mean & XGBoost Mean & Exact \(p\) \\
+\midrule
+Accuracy & 0.6348 & 0.6269 & 0.1875 \\
+Macro-F1 & 0.5007 & 0.4941 & 0.6250 \\
+Macro PR-AUC & 0.5469 & 0.5416 & 1.0000 \\
+Tail PR-AUC & 0.2246 & 0.2174 & 0.6250 \\
+Macro ROC-AUC & 0.9381 & 0.9230 & 0.1250 \\
+Kappa & 0.5590 & 0.5310 & 0.0625 \\
+ECE \(\downarrow\) & 0.1999 & 0.0479 & 0.0625 \\
+Brier \(\downarrow\) & 0.5663 & 0.5243 & 0.0625 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The limitations of this inferential analysis should also be stated directly. First, with only five paired folds, the exact Wilcoxon test is underpowered: even if one model won all five folds, the smallest attainable exact two-sided \(p\)-value would still be 0.0625. Second, these folds are repeated holdout configurations from the same benchmark rather than independent datasets. Third, fold \(f0\) was also used during model development in the current study, so the resulting \(p\)-values should be interpreted as exploratory rather than confirmatory. The honest conclusion is therefore that the neural model and XGBoost are close on this benchmark, with no statistically established tail-class advantage for the neural system.
+
+\section{Training Dynamics and DRW Behavior}
+For the best neural configuration, validation performance improves rapidly in the first few epochs, stabilizes during the uniform-weight phase, and continues improving after deferred re-weighting activates at epoch 15. The absence of a sharp drop at the transition supports the use of delayed class weighting: the shared representation is learned first, and minority emphasis is added only after the encoder has stabilized.
+
+\section{Ablation: Effect of ECFP Fusion}
+Table~\ref{tab:ecfp_ablation} isolates the contribution of fingerprint fusion within the neural family by comparing \texttt{GAT+LA+DRW} against \texttt{GAT+ECFP+LA+DRW}. The descriptor-only XGBoost baseline is not part of this ablation because it is a separate model family, but its strong performance reinforces the same message: ECFP descriptors provide highly transferable structural information in the cold-drug setting.
+
+\begin{table}[H]
+\centering
+\caption{Ablation: ECFP fusion under identical neural training settings. Mean across five folds.}
+\label{tab:ecfp_ablation}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+Model & Accuracy & Macro-F1 & Macro PR-AUC & Tail PR-AUC & Macro ROC-AUC & Kappa & ECE \\
+\midrule
+GAT + LA + DRW        & 0.5967 & 0.4569 & 0.4908 & 0.2142 & 0.9259 & 0.5085 & 0.1394 \\
+GAT + ECFP + LA + DRW & 0.6351 & 0.5032 & 0.5519 & 0.2156 & 0.9395 & 0.5579 & 0.1966 \\
+\midrule
+Absolute gain & +0.0383 & +0.0463 & +0.0610 & +0.0014 & +0.0136 & +0.0494 & +0.0572 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Within the neural family, ECFP fusion yields substantial improvements in accuracy, macro-F1, macro PR-AUC, and kappa. This is consistent with the XGBoost comparison: deterministic substructure descriptors are powerful under cold-drug generalization because they do not depend on learned message-passing behavior alone. The cost is calibration. Adding fixed fingerprint information improves discrimination but tends to produce sharper, less calibrated confidence estimates in the neural models.
+
+\section{Tail-Class Performance and Discussion}
+Tail macro PR-AUC remains the hardest metric for every model. Even the strongest neural system reaches only 0.2246, while XGBoost reaches 0.2174. These values are far below the corresponding overall macro PR-AUC values, confirming that rare interaction types remain substantially more difficult than head classes. The cold-drug protocol intensifies this difficulty because one drug in each validation or test pair is unseen during training, and some folds also contain labels absent from the training partition entirely.
+
+Four conclusions follow from the expanded benchmark. \textit{First}, cold-drug DDI prediction is feasible but substantially harder than warm-drug evaluation. \textit{Second}, XGBoost with ECFP4 is a serious baseline and should be included in any fair comparison; graph models do not win by default once the split is made strict. \textit{Third}, the best graph-based model attains the highest mean overall discrimination, but the current benchmark does not establish a statistically significant tail-retrieval advantage over XGBoost. \textit{Fourth}, calibration remains an unresolved problem for the neural systems, whereas the XGBoost baseline offers a strong reference point for deployment-oriented probability quality.

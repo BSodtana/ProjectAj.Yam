@@ -1,0 +1,26 @@
+\section{Descriptor Baseline Comparison}
+The XGBoost baseline is not a trivial comparator. Under the strict cold-drug protocol, it outperforms the graph-only neural baselines and remains close to the final \texttt{GAT+ECFP+LA+DRW} model. On the five-fold benchmark, the best neural configuration has slightly higher mean accuracy (0.6348 vs.\ 0.6269), macro-F1 (0.5007 vs.\ 0.4941), macro PR-AUC (0.5469 vs.\ 0.5416), macro ROC-AUC (0.9381 vs.\ 0.9230), tail macro PR-AUC (0.2246 vs.\ 0.2174), and kappa (0.5590 vs.\ 0.5310). However, XGBoost remains substantially better calibrated, with much lower ECE and Brier score. The appropriate interpretation is therefore narrow: the neural model has slightly better mean discrimination, but this does not by itself establish statistical superiority over the descriptor baseline.
+
+To test whether the fold-level differences are robust, an exact paired Wilcoxon signed-rank test was computed across the five fold pairs \(f0\)--\(f4\). Table~\ref{tab:wilcoxon_xgb} reports the two-sided exact \(p\)-values. None of the comparisons reaches the conventional \(p<0.05\) threshold. The tail-class result is the most important: although the neural model has a slightly higher five-fold mean tail macro PR-AUC than XGBoost (0.2246 vs.\ 0.2174), the paired Wilcoxon test gives \(p=0.6250\). Thus, the current benchmark does not establish a statistically significant tail-class advantage for the neural model.
+
+\begin{table}[H]
+\centering
+\caption{Exact paired Wilcoxon signed-rank comparison between \texttt{GAT+ECFP+LA+DRW} and \texttt{XGBoost+ECFP4} across the five fold pairs. Lower is better for ECE and Brier.}
+\label{tab:wilcoxon_xgb}
+\begin{tabular}{lccc}
+\toprule
+Metric & Neural Mean & XGBoost Mean & Exact \(p\) \\
+\midrule
+Accuracy & 0.6348 & 0.6269 & 0.1875 \\
+Macro-F1 & 0.5007 & 0.4941 & 0.6250 \\
+Macro PR-AUC & 0.5469 & 0.5416 & 1.0000 \\
+Tail PR-AUC & 0.2246 & 0.2174 & 0.6250 \\
+Macro ROC-AUC & 0.9381 & 0.9230 & 0.1250 \\
+Kappa & 0.5590 & 0.5310 & 0.0625 \\
+ECE \(\downarrow\) & 0.1999 & 0.0479 & 0.0625 \\
+Brier \(\downarrow\) & 0.5663 & 0.5243 & 0.0625 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The limitations of this inferential analysis should also be stated directly. First, with only five paired folds, the exact Wilcoxon test is underpowered: even if one model won all five folds, the smallest attainable exact two-sided \(p\)-value would still be 0.0625. Second, these folds are repeated holdout configurations from the same benchmark rather than independent datasets. Third, in the current study fold \(f0\) was also used during model development, so the resulting \(p\)-values should be interpreted as exploratory rather than confirmatory. The intellectually honest conclusion is that the neural model and XGBoost are close on this benchmark, and the apparent tail PR-AUC difference is not statistically significant.

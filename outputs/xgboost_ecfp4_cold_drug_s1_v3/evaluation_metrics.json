@@ -1,0 +1,120 @@
+{
+  "aggregation": {
+    "method": "mean_std",
+    "num_folds": 5
+  },
+  "fold_metrics_paths": [
+    "outputs/xgboost_ecfp4_cold_drug_s1_v3/fold_0/evaluation_metrics.json",
+    "outputs/xgboost_ecfp4_cold_drug_s1_v3/fold_1/evaluation_metrics.json",
+    "outputs/xgboost_ecfp4_cold_drug_s1_v3/fold_2/evaluation_metrics.json",
+    "outputs/xgboost_ecfp4_cold_drug_s1_v3/fold_3/evaluation_metrics.json",
+    "outputs/xgboost_ecfp4_cold_drug_s1_v3/fold_4/evaluation_metrics.json"
+  ],
+  "fold_summaries": [
+    {
+      "accuracy": 0.6201367039166757,
+      "fold_index": 0,
+      "kappa": 0.5215233864777058,
+      "macro_f1": 0.5224308103469101,
+      "macro_pr_auc_ovr": 0.5721146219854396,
+      "macro_roc_auc_ovr": 0.9309670879504862,
+      "micro_f1": 0.6201367039166757,
+      "nll_loss": 1.3644900281463506,
+      "objective_loss": 1.3644900281463506,
+      "tail_macro_pr_auc_ovr": 0.20152039711666908
+    },
+    {
+      "accuracy": 0.6224940684791362,
+      "fold_index": 1,
+      "kappa": 0.5294801944935301,
+      "macro_f1": 0.45551451766320183,
+      "macro_pr_auc_ovr": 0.4857087995264292,
+      "macro_roc_auc_ovr": 0.9141312988900993,
+      "micro_f1": 0.6224940684791362,
+      "nll_loss": 1.560017669694572,
+      "objective_loss": 1.560017669694572,
+      "tail_macro_pr_auc_ovr": 0.17336636130409644
+    },
+    {
+      "accuracy": 0.6394765965757437,
+      "fold_index": 2,
+      "kappa": 0.5434711758474216,
+      "macro_f1": 0.4969018694843247,
+      "macro_pr_auc_ovr": 0.534222516193647,
+      "macro_roc_auc_ovr": 0.9198022676217871,
+      "micro_f1": 0.6394765965757437,
+      "nll_loss": 1.334293577014317,
+      "objective_loss": 1.334293577014317,
+      "tail_macro_pr_auc_ovr": 0.17461773967533334
+    },
+    {
+      "accuracy": 0.6253341156529109,
+      "fold_index": 3,
+      "kappa": 0.5287200145711207,
+      "macro_f1": 0.4597291962529718,
+      "macro_pr_auc_ovr": 0.51992890632255,
+      "macro_roc_auc_ovr": 0.9060352835353289,
+      "micro_f1": 0.6253341156529109,
+      "nll_loss": 1.4599235684618999,
+      "objective_loss": 1.4599235684618999,
+      "tail_macro_pr_auc_ovr": 0.12882192013976196
+    },
+    {
+      "accuracy": 0.6271860268080207,
+      "fold_index": 4,
+      "kappa": 0.5318297102877905,
+      "macro_f1": 0.5358901707214966,
+      "macro_pr_auc_ovr": 0.5962385596229425,
+      "macro_roc_auc_ovr": 0.9438594689455746,
+      "micro_f1": 0.6271860268080207,
+      "nll_loss": 1.368453578564865,
+      "objective_loss": 1.368453578564865,
+      "tail_macro_pr_auc_ovr": 0.4088105100640186
+    }
+  ],
+  "objective_config": {
+    "benchmark_protocol": "cold_drug_s1_v3",
+    "cold_k": 5,
+    "cold_protocol": "s1",
+    "colsample_bytree": 0.8,
+    "early_stopping_rounds": 30,
+    "ecfp_bits": 2048,
+    "ecfp_radius": 2,
+    "learning_rate": 0.05,
+    "max_depth": 8,
+    "min_child_weight": 1.0,
+    "model_family": "xgboost",
+    "n_estimators": 600,
+    "num_classes_total": 86,
+    "pair_representation": "sorted_concat_ecfp4",
+    "reg_lambda": 1.0,
+    "run_mode": "cold_drug_kfold",
+    "split_impl": "v3",
+    "split_strategy": "cold_drug",
+    "subsample": 0.8,
+    "tree_method": "hist",
+    "use_class_weights": false
+  },
+  "summary": {
+    "accuracy": 0.6269255022864975,
+    "kappa": 0.5310048963355137,
+    "macro_f1": 0.494093312893781,
+    "macro_pr_auc_ovr": 0.5416426807302017,
+    "macro_roc_auc_ovr": 0.9229590813886552,
+    "micro_f1": 0.6269255022864975,
+    "nll_loss": 1.4174356843764007,
+    "objective_loss": 1.4174356843764007,
+    "tail_macro_pr_auc_ovr": 0.21742738565997585
+  },
+  "summary_std": {
+    "accuracy": 0.00672094846277728,
+    "kappa": 0.0071208548994175684,
+    "macro_f1": 0.032332939953690416,
+    "macro_pr_auc_ovr": 0.038895745533996794,
+    "macro_roc_auc_ovr": 0.013230755986749283,
+    "micro_f1": 0.00672094846277728,
+    "nll_loss": 0.08276465677003127,
+    "objective_loss": 0.08276465677003127,
+    "tail_macro_pr_auc_ovr": 0.0984941630431406
+  }
+}
