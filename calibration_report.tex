@@ -1,0 +1,808 @@
+%=============================================================
+% Calibration Degradation in Fused ECFP Pipelines
+% and Temperature Scaling Mitigation
+% Technical Report — Buddharak Sodtana
+%=============================================================
+\documentclass[11pt,a4paper,twocolumn]{article}
+
+\usepackage[top=0.85in, bottom=0.85in, left=0.7in, right=0.7in]{geometry}
+\setlength{\columnsep}{18pt}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{setspace}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{dblfloatfix}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{needspace}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={Calibration Degradation in Fused ECFP Pipelines},
+  pdfauthor={Buddharak Sodtana}
+}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!50!black}\itshape,
+  stringstyle=\color{red!60!black},
+  backgroundcolor=\color{gray!8},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b,
+  aboveskip=6pt,
+  belowskip=4pt,
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+  columns=fullflexible
+}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\renewcommand{\arraystretch}{1.10}
+\setstretch{1.05}
+\setlist{nosep,leftmargin=*}
+
+\title{Calibration Degradation in Fused ECFP Pipelines\\
+       and Temperature Scaling Mitigation}
+\author{Buddharak Sodtana\\[0.5em]
+        \small Technical Report for Cold-Drug DDI Benchmark}
+\date{March 2026}
+
+\begin{document}
+
+%-------------------------------------------------------------
+% FRONT MATTER — single column
+%-------------------------------------------------------------
+\onecolumn
+\maketitle
+
+\begin{abstract}
+Calibration degradation after fusing Extended-Connectivity Fingerprint
+(ECFP) features is a predictable side-effect of increased effective model
+capacity, heterogeneous feature sources that create conflicting evidence and
+region-dependent confidence errors, and distributional shifts that the
+fusion model amplifies rather than averages out.
+This report provides a comprehensive analysis of why calibration worsens
+when ECFP4 fingerprints are fused with graph attention network embeddings
+in the context of cold-drug DDI prediction, and presents a systematic
+mitigation strategy centered on post-hoc temperature scaling.
+We define key concepts, identify six mechanistic causes of calibration
+failure, survey the relevant evidence base, recommend diagnostic metrics
+and chart types, and provide an implementation blueprint for temperature
+scaling on fused ECFP outputs.
+The report concludes with practical recommendations for writing a
+calibration-aware evaluation chapter.
+
+\noindent\textbf{Keywords:} calibration, ECFP, temperature scaling,
+drug--drug interaction, multimodal fusion, reliability diagram
+\end{abstract}
+
+\tableofcontents
+\vspace{8pt}
+\twocolumn
+
+%=============================================================
+\section{Executive Summary}
+%=============================================================
+
+A tight, defensible mitigation strategy involves three stages.
+\textit{First}, diagnose \textit{how} calibration breaks: global
+overconfidence vs.\ classwise vs.\ subsetwise; i.i.d.\ vs.\ shifted.
+Use reliability diagrams plus scalar metrics (ECE, MCE, Brier, NLL) and
+report binning choices and uncertainty around estimates.
+\textit{Second}, apply post-hoc temperature scaling to the final fused
+logits first; it is low-variance (1 parameter), preserves accuracy and
+argmax in multiclass settings, and is a standard baseline in modern
+calibration work.
+\textit{Third}, if miscalibration is not mostly global---e.g., it varies
+by class, interaction type, cold-start subset, or confidence
+level---use structured extensions: classwise or vector scaling, adaptive
+or local temperature scaling, or (when calibration data suffice) isotonic
+or Dirichlet-style calibrators.
+Calibration must be validated under the fusion regimes of interest (e.g.,
+cold-drug splits, temporally shifted splits, scaffold splits), because
+calibration that looks good i.i.d.\ can fail under shift; ensembles are
+often more robust than post-hoc scaling under shift, but at higher
+compute cost.
+
+%=============================================================
+\section{Definitions and Scope}
+%=============================================================
+
+\subsection{Extended-Connectivity Fingerprints (ECFP)}
+ECFP are circular, neighbourhood-expansion fingerprints designed for
+structure--activity modelling.
+They iterate over atom environments up to a specified radius, hash
+identifiers for local substructures, and fold them into fixed-length sparse
+bit or count vectors (e.g., 1024/2048/4096 bits).
+A key implementation detail for the fusion--calibration relationship:
+\textbf{folding increases hash collisions}, i.e., distinct substructures
+mapping to the same bit position, introducing structured noise and
+sometimes spurious correlations that a high-capacity fusion model can
+exploit with high confidence.
+
+\subsection{Unbindable Data Types}
+In this report, \textbf{unbindable data types} refers to two feature sources
+that cannot be meaningfully bound by a fixed, semantics-preserving
+alignment without learning a mapping or choosing an arbitrary binding
+operator.
+This includes two common chemical ML cases:
+\begin{itemize}
+\item \textbf{Pairwise entity fusion:} two molecules (drug A, drug B) each
+      encoded as ECFP vectors, where the pair is unordered but representing
+      it requires an ordering or a permutation-invariant operator.
+\item \textbf{Heterogeneous fusion:} ECFP (hashed sparse bits/counts)
+      fused with learned graph embeddings, sequence embeddings, or
+      knowledge-graph features, where feature scales, sparsity, and
+      semantics differ.
+\end{itemize}
+This aligns with multimodal ML's core challenge: heterogeneity across
+modalities implies non-trivial alignment and fusion choices; naive fusion
+can create brittle decision rules and confidence behaviour.
+
+\subsection{Calibration}
+A probabilistic classifier is \textbf{calibrated} if predicted
+probabilities match empirical correctness frequencies (e.g., among
+predictions with confidence 0.8, approximately 80\% are correct).
+Reliability diagrams visualise deviations; proper scoring rules (log loss,
+Brier) quantify probabilistic accuracy.
+In modern deep models, high accuracy does not imply calibration;
+architecture and training choices can systematically produce overconfident
+probabilities.
+
+\subsection{Temperature Scaling}
+Temperature scaling is a post-hoc method that rescales logits $\mathbf{z}$
+by a single positive scalar $T$:
+\begin{equation}
+  p_T(y\!=\!c \mid x) = \mathrm{softmax}\!\left(\frac{z_c(x)}{T}\right).
+\end{equation}
+$T$ is fitted on a held-out calibration set by minimising negative
+log-likelihood (NLL).
+In multiclass classification, it preserves argmax predictions (hence
+usually preserves accuracy) while adjusting confidence.
+It is a single-parameter special case of scaling approaches related to
+Platt-style calibration.
+
+%=============================================================
+\section{Mechanisms of Calibration Degradation}
+\label{sec:mechanisms}
+%=============================================================
+
+Calibration degradation in fusion is rarely mysterious; it typically falls
+out of the interaction between capacity, evidence aggregation, and
+mismatch/noise.
+
+\subsection{Statistical and Optimisation Causes}
+Cross-entropy training with hard labels pushes models to create large logit
+margins, yielding very confident softmax outputs even when the underlying
+problem contains ambiguity (aleatoric uncertainty) or the model is
+misspecified.
+Increasing effective capacity (depth/width) and certain training components
+(e.g., BatchNorm) have been empirically associated with worse calibration
+despite strong accuracy.
+Fusion often increases effective capacity (more inputs, more parameters,
+richer interactions), so it can improve discrimination while producing
+\textit{sharper} probabilities---often overconfident unless regularised or
+calibrated.
+
+\subsection{Representational Causes Specific to ECFP}
+ECFP's hashed/folded representation introduces two properties that matter
+for calibration when fused:
+\begin{itemize}
+\item \textbf{Collision-induced ambiguity:} folding raises collision
+      probability, causing multiple distinct substructures to share bits,
+      which is a form of structured feature noise.
+\item \textbf{Sparsity and heavy-tailed feature counts:} bit vectors
+      create sparse, high-variance activation patterns.
+      When a fusion model learns that certain sparse patterns correlate
+      with labels, it can become extremely confident on those patterns,
+      even if the correlation is partly artefactual.
+\end{itemize}
+The net effect is that adding ECFP to another representation can increase
+the \textit{perceived separability} of the training data, which increases
+confidence more than it increases true conditional correctness.
+
+\subsection{Feature Overlap and Evidence Double Counting}
+When two sources encode overlapping information (e.g., graph features and
+ECFP both derived from 2D structure), the model may \textbf{double count
+correlated evidence}, inflating confidence.
+Conversely, when sources conflict (e.g., noisy assay features vs.\
+structure), naive fusion can still output high confidence because the model
+learns spurious rules for resolving conflicts.
+Fusion increases representation richness but also increases the space of
+shortcuts that yield large margins.
+
+\subsection{Distributional Shift and Split-Induced Mismatch}
+Calibration is distribution-dependent.
+Even if you temperature-scale on an i.i.d.\ validation split, calibration
+can deteriorate under chemical novelty (scaffold/cold-start splits),
+temporal drift (newer chemistry), or domain shift between datasets.
+This is particularly salient in DDI settings where new drugs differ from
+known drugs.
+Large-scale evaluations of predictive uncertainty under dataset shift show
+that post-hoc calibration can fall short under shift, and methods that
+marginalise over models (e.g., deep ensembles) are often more robust.
+
+\subsection{Label Noise and Incomplete Labels}
+Cheminformatics and pharmacology labels commonly contain measurement noise,
+extraction/curation noise, or incompleteness (unknown interactions treated
+as negatives).
+Hard-label cross-entropy can translate such noise into overconfident
+predictions; empirical work on mixup/label smoothing argues that
+overconfidence is partly a consequence of hard targets.
+
+%=============================================================
+\section{Summary of Causes, Signatures, and Mitigations}
+%=============================================================
+
+Table~\ref{tab:causes} summarises the six main causes of calibration
+degradation, their diagnostic signatures, and recommended mitigations
+ordered from simplest to most complex.
+
+\begin{table*}[tp]
+\centering
+\caption{Causes of calibration degradation in fused ECFP pipelines.}
+\label{tab:causes}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{3.5cm}p{4cm}p{4cm}p{5.5cm}}
+\toprule
+\textbf{Cause} & \textbf{Calibration Signature} &
+\textbf{Diagnostic Test} & \textbf{Mitigation (simplest first)} \\
+\midrule
+Increased capacity via fusion &
+  Global overconfidence; reliability curve below diagonal &
+  Compare max-softmax histograms; NLL vs accuracy gap &
+  Temperature scaling; stronger regularisation; label smoothing/mixup;
+  ensembles \\
+\addlinespace
+ECFP folding / collisions &
+  Overconfident spikes on certain sparse patterns &
+  Compare calibration by fingerprint density / collision proxy;
+  ablate fpSize &
+  Increase fpSize; count fingerprints; reduce folding; post-hoc
+  calibration \\
+\addlinespace
+Feature overlap (double counting) &
+  Very high confidence with modest accuracy gains &
+  Calibrate separately per modality branch; measure modality agreement &
+  Late fusion + (re)calibration; gating with regularisation; ensemble
+  fusion \\
+\addlinespace
+Modality conflict / unbindable fusion &
+  Region-dependent miscalibration; classwise errors &
+  Conditional ECE by subset (cold-start vs warm, scaffold bins) &
+  Classwise/vector scaling; local/adaptive TS; isotonic/Dirichlet
+  calibration \\
+\addlinespace
+Distribution shift &
+  Calibration good i.i.d., bad OOD &
+  Shifted test sets (temporal/scaffold/distribution change) &
+  Ensembles; recalibration per domain; conformal prediction as backup \\
+\addlinespace
+Label noise / incompleteness &
+  Persistent miscalibration even after TS &
+  Inspect label reliability; compare soft-label training &
+  Label smoothing/mixup; Bayesian/noise-aware modelling; careful
+  negatives \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+%=============================================================
+\section{Evidence Base from Literature}
+%=============================================================
+
+\subsection{Calibration in Neural Networks}
+Large empirical studies establish that many modern neural networks are
+miscalibrated and that temperature scaling is a strong, simple post-hoc
+baseline.
+Guo et al.\ demonstrated that as neural network depth and width increase,
+calibration degrades despite accuracy improvements, and that a single
+learned temperature parameter can substantially reduce ECE.
+Subsequent work revisiting calibration continues to treat temperature
+scaling as a key baseline across model families.
+
+\subsection{Multimodal and Fusion-Specific Evidence}
+Fusion can worsen trustworthiness properties even when it improves
+conventional performance.
+Dedicated multimodal calibration work formalises desiderata such as
+``confidence should not increase when one modality is removed'' and
+evaluates calibration failures in multimodal settings.
+Recent clinical multimodal analyses similarly find that multimodal fusion
+can degrade selective prediction reliability.
+
+\subsection{Cheminformatics: Uncertainty and Calibration}
+In drug discovery contexts, multiple studies emphasise that uncertainty
+quality (including calibration) matters because experimental follow-up is
+expensive and models can be overconfident on out-of-distribution chemistry.
+A comprehensive calibration study for neural network structure--activity
+models reports that model selection strategy and calibration approaches
+significantly affect reliability of uncertainty estimates.
+Ensemble-based uncertainty and recalibration frameworks in molecular
+property prediction show that recalibration can improve uncertainty quality
+on held-out data, including under distribution shift, but at higher
+training cost.
+
+\subsection{DDI Benchmarks as a Concrete Fusion Setting}
+DDI prediction is a canonical scenario where representations of two
+entities (drug A, drug B) and often multiple feature types
+(structure/fingerprints/targets/enzymes) are fused.
+Benchmarking under distribution changes between known and new drug sets
+emphasises that evaluation must consider shift.
+Practical fingerprint-only DDI work explicitly tests pairwise fusion
+operators (addition, subtraction, Hadamard product) for representing drug
+pairs, directly relevant to unbindable entity fusion of two ECFP vectors.
+
+%=============================================================
+\section{Calibration Diagnostics and Metrics}
+%=============================================================
+
+\subsection{Reliability Diagrams}
+A reliability diagram bins predictions by confidence and plots empirical
+accuracy vs.\ predicted confidence.
+The diagonal indicates perfect calibration; below-diagonal indicates
+overconfidence; above-diagonal indicates underconfidence.
+
+\subsection{Scalar Calibration Metrics}
+
+Table~\ref{tab:metrics} summarises the scalar metrics with practical
+guidance for reporting.
+
+\begin{table*}[tp]
+\centering
+\caption{Calibration metrics: properties and reporting guidance.}
+\label{tab:metrics}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{2cm}p{3cm}p{3cm}p{3.5cm}p{4.5cm}}
+\toprule
+\textbf{Metric} & \textbf{What It Captures} & \textbf{Strengths} &
+\textbf{Caveats} & \textbf{Recommended Reporting} \\
+\midrule
+Reliability diagram &
+  Shape of miscalibration vs confidence &
+  Diagnoses over/underconfidence; communicable &
+  Bin choice; hides sample counts &
+  Plot with bin counts overlay; stratify by subset (OOD/cold-start) \\
+\addlinespace
+ECE &
+  Average calibration gap &
+  Simple scalar; widely used &
+  Binning bias; can mask local errors &
+  Specify binning (equal-width vs equal-mass), \#bins, CI via bootstrap \\
+\addlinespace
+MCE &
+  Worst-bin gap &
+  Sensitive to failure regions &
+  High variance with small bins &
+  Report with ECE; show where worst bin occurs \\
+\addlinespace
+Brier &
+  Probabilistic accuracy (squared error) &
+  Proper score; decomposable &
+  Conflates calibration + refinement &
+  Report macro and micro variants; alongside NLL \\
+\addlinespace
+NLL &
+  Proper score aligned with TS fitting &
+  Directly optimised in TS &
+  Sensitive to label noise &
+  Report pre/post TS; stratify by subset; include ECE diagrams \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\subsection{Recommended Chart Set}
+For a calibration-focused evaluation, a defensible minimal set is:
+\begin{enumerate}
+\item Reliability diagram (before/after calibration),
+\item Bar chart of ECE and MCE across methods,
+\item Line or dot chart of Brier and NLL across methods,
+\item Stratified ECE (e.g., by scaffold bins, cold-start tiers, or time
+      bins).
+\end{enumerate}
+
+%=============================================================
+\section{Temperature Scaling and Alternatives}
+\label{sec:ts}
+%=============================================================
+
+\subsection{Temperature Scaling as the Required Baseline}
+Temperature scaling is well suited when fusion produces mostly global
+overconfidence---a common pattern when adding features increases margin
+without proportionally increasing correctness.
+Key properties:
+\begin{itemize}
+\item \textbf{Low variance / low overfitting risk}: one parameter $T$,
+      fitted on a held-out calibration set.
+\item \textbf{Argmax-preserving for multiclass}: rankings of logits are
+      unchanged by division by $T$, so top-1 accuracy typically stays
+      constant.
+\item \textbf{Optimises NLL}: connects cleanly to proper scoring rules.
+\end{itemize}
+
+\subsection{Variants and Alternatives}
+
+Table~\ref{tab:calibrators} contrasts temperature scaling variants and
+common alternative calibrators.
+
+\begin{table*}[tp]
+\centering
+\caption{Calibration methods: comparison for fused ECFP pipelines.}
+\label{tab:calibrators}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{3.2cm}p{1.5cm}p{1cm}p{2cm}p{2cm}p{4.5cm}}
+\toprule
+\textbf{Method} & \textbf{Space} & \textbf{Params} &
+\textbf{Argmax?} & \textbf{Data Need} & \textbf{Best For} \\
+\midrule
+Temperature scaling (TS) & logits & 1 & Yes & Small &
+  Global over/underconfidence \\
+Vector / classwise scaling & logits & $O(C)$ & Usually & Moderate &
+  Class-dependent bias \\
+Matrix scaling & logits & $O(C^2)$ & Not guaranteed & Large &
+  Rich miscalibration (risky with few classes) \\
+Local / adaptive TS & logits & $>$1 & Often & Moderate--large &
+  Region-dependent miscalibration \\
+Platt scaling & score$\to$prob & 2 & N/A & Small--moderate &
+  Binary calibration; margin-based models \\
+Isotonic regression & score$\to$prob & nonparam. & N/A & Large &
+  Complex monotone calibration curves \\
+Dirichlet calibration & probs/logits & $O(C^2)$ & Not guaranteed &
+  Moderate--large & Multiclass calibration beyond single $T$ \\
+Deep ensembles & predictive dist. & $K\times$model & N/A & Large compute &
+  Robustness under dataset shift \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\subsection{Fusion-Aware Calibration Strategies}
+For fusing two unbindable sources, calibration often improves if you
+calibrate in stages:
+\begin{enumerate}
+\item \textbf{Branch calibration}: calibrate per-modality logits (or
+      per-entity outputs) before fusion.
+\item \textbf{Fusion calibration}: fuse (e.g., logit averaging or learned
+      weights), then apply final TS.
+\end{enumerate}
+A practical variant for DDI/pair tasks with two molecules: use
+permutation-invariant pair representations (e.g.,
+$\mathbf{f}_a+\mathbf{f}_b$, $|\mathbf{f}_a-\mathbf{f}_b|$,
+$\mathbf{f}_a\odot\mathbf{f}_b$) to reduce spurious ordering effects,
+then calibrate.
+
+%=============================================================
+\section{Experimental Design Blueprint}
+\label{sec:experiment}
+%=============================================================
+
+This section gives a deployment-ready experimental plan that directly
+targets calibration degradation from fused ECFP outputs and tests
+temperature scaling as the first mitigation.
+
+\subsection{Candidate Datasets and Splits}
+
+Table~\ref{tab:datasets} proposes datasets covering the regimes where
+calibration often fails.
+
+\begin{table*}[tp]
+\centering
+\caption{Recommended datasets and split strategies for calibration
+         evaluation.}
+\label{tab:datasets}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{3.5cm}p{2.5cm}p{5cm}p{4.5cm}}
+\toprule
+\textbf{Dataset} & \textbf{Task Type} &
+\textbf{Why Useful for Calibration Study} &
+\textbf{Recommended Splits} \\
+\midrule
+DrugBank multi-type DDI &
+  Multiclass (86 types) &
+  Natural two-entity fusion (drug A + drug B) with ECFP; many labels;
+  real shift concerns &
+  Drug-disjoint cold-start; distribution-change splits \\
+\addlinespace
+MoleculeNet (BBBP, BACE, HIV, ClinTox) &
+  Binary/multitask &
+  Standard chemical benchmarks; supports fingerprint baselines and
+  scaffold splits &
+  Scaffold split; random split for contrast \\
+\addlinespace
+TDC (ADMET, toxicity) &
+  Classification/regression &
+  Curated tasks with explicit emphasis on distribution shifts &
+  Scaffold / temporal / TDC split functions \\
+\addlinespace
+ChEMBL target-wise activity &
+  Binary per target &
+  Large-scale structure--activity data; suited to time-based drift &
+  Time split by assay; scaffold split \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\subsection{Fusion Strategies to Compare}
+
+\textbf{For two-molecule ECFP fusion (DDI-style):}
+\begin{itemize}
+\item Concatenation $[\mathbf{f}_a \| \mathbf{f}_b]$ plus order
+      augmentation.
+\item Permutation-invariant operators: $\mathbf{f}_a+\mathbf{f}_b$,
+      $|\mathbf{f}_a-\mathbf{f}_b|$,
+      $\mathbf{f}_a\odot\mathbf{f}_b$.
+\item Bilinear/outer-product interactions (higher capacity; likely worse
+      calibration unless regularised).
+\end{itemize}
+
+\textbf{For heterogeneous fusion (ECFP + learned embedding):}
+\begin{itemize}
+\item Early fusion: concat at feature level into an MLP head.
+\item Late fusion: separate heads produce logits, then combine and apply
+      TS post-hoc.
+\item Gated fusion: learn per-sample modality weights (high risk for
+      miscalibration if gate becomes overconfident).
+\end{itemize}
+
+\subsection{Recommended Experimental Matrix}
+
+Table~\ref{tab:matrix} defines the minimal but informative experimental
+design.
+
+\begin{table*}[tp]
+\centering
+\caption{Experimental matrix for calibration evaluation.}
+\label{tab:matrix}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{3cm}p{3cm}p{3.5cm}p{3cm}p{4cm}}
+\toprule
+\textbf{Component} & \textbf{Baseline} & \textbf{Fusion Variants} &
+\textbf{Calibration} & \textbf{What You Learn} \\
+\midrule
+Representation &
+  ECFP only &
+  ECFP(A)+ECFP(B) or ECFP + embedding &
+  None &
+  Whether fusion improves discrimination \\
+\addlinespace
+Pair fusion operator &
+  Concat &
+  Sum / abs-diff / Hadamard &
+  TS &
+  Whether permutation invariance improves calibration--discrimination
+  trade-off \\
+\addlinespace
+Heterogeneous fusion &
+  Early concat &
+  Late logit fusion; gated fusion &
+  TS; adaptive/local TS &
+  Whether miscalibration is global vs region-dependent \\
+\addlinespace
+Calibration complexity &
+  TS &
+  --- &
+  Vector scaling; Dirichlet; isotonic &
+  When single temperature is insufficient \\
+\addlinespace
+Shift robustness &
+  i.i.d. &
+  Scaffold/cold-start/time &
+  TS vs ensembles &
+  Whether post-hoc calibration survives shift \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+%=============================================================
+\section{Implementation Details}
+\label{sec:impl}
+%=============================================================
+
+\subsection{ECFP Generation Parameters}
+Recommended ranges to justify empirically:
+\begin{itemize}
+\item Radius: 2 (ECFP4) or 3 (ECFP6).
+\item fpSize: 1024 / 2048 / 4096.
+\item Include chirality: on/off depending on task.
+\item Bit vs count: both worth testing if calibration is sensitive to
+      sparsity.
+\end{itemize}
+
+\subsection{Temperature Scaling Optimisation}
+Practical guidelines:
+\begin{itemize}
+\item Optimise $\log T$ to enforce $T>0$.
+\item Initial $T=1$.
+\item Optimiser: L-BFGS (common) or Adam.
+\item Clamp or regularise $T$ to a sane range such as $[0.05, 20]$ to
+      avoid numerical pathologies.
+\item Use float64 during calibration fitting if logits are large.
+\end{itemize}
+
+\subsection{Pseudocode: Multiclass Temperature Scaling}
+
+\begin{lstlisting}[language={},caption={Temperature scaling procedure.}]
+Input:
+  trained_model f(x) -> logits z in R^C
+  calibration dataset D_cal = {(x_i, y_i)}
+Goal:
+  fit scalar T > 0 to minimise NLL on D_cal
+Procedure:
+  1) Freeze f
+  2) For each x_i in D_cal:
+       z_i = f(x_i)           # logits
+  3) Optimise logT:
+       T = exp(logT)
+       p_i = softmax(z_i / T)
+       loss = mean_i( -log p_i[y_i] )
+  4) Return calibrated predictor:
+       p_T(x) = softmax(f(x) / T)
+\end{lstlisting}
+
+\subsection{PyTorch Implementation}
+
+\begin{lstlisting}[language=Python,caption={Minimal temperature scaling
+in PyTorch.}]
+import torch
+import torch.nn.functional as F
+
+class TemperatureScaler(torch.nn.Module):
+    def __init__(self, init_temp=1.0):
+        super().__init__()
+        self.log_T = torch.nn.Parameter(
+            torch.tensor([init_temp]).log())
+
+    @property
+    def T(self):
+        return self.log_T.exp()
+
+    def forward(self, logits):
+        return logits / self.T
+
+def fit_temperature(model, calib_loader,
+                    device="cuda"):
+    model.eval()
+    logits_list, y_list = [], []
+    with torch.no_grad():
+        for x, y in calib_loader:
+            x = x.to(device)
+            y = y.to(device)
+            logits_list.append(model(x))
+            y_list.append(y)
+    logits = torch.cat(logits_list)
+    y = torch.cat(y_list)
+
+    scaler = TemperatureScaler(1.0).to(device)
+    opt = torch.optim.LBFGS(
+        scaler.parameters(),
+        lr=0.1, max_iter=50)
+
+    def closure():
+        opt.zero_grad()
+        scaled = scaler(logits)
+        loss = F.cross_entropy(scaled, y)
+        loss.backward()
+        return loss
+
+    opt.step(closure)
+    return scaler
+\end{lstlisting}
+
+\subsection{Multilabel Note}
+If the fused ECFP model is multilabel (e.g., multiple DDI types can
+co-occur), independent sigmoid outputs are typical.
+In that case a single global $T$ on logits may be too coarse; consider
+per-label temperature or Platt scaling, but guard against overfitting for
+rare labels.
+
+%=============================================================
+\section{Expected Results and Interpretation}
+%=============================================================
+
+\subsection{What to Expect}
+In many fused-ECFP settings:
+\begin{itemize}
+\item \textbf{Discrimination improves, calibration worsens} after fusion,
+      because the fused model becomes more confident faster than it becomes
+      more correct.
+      This is consistent with findings relating miscalibration to model
+      capacity and hard-label training.
+\item \textbf{Temperature scaling reduces ECE/MCE and improves NLL},
+      often substantially, with negligible effect on accuracy for multiclass
+      tasks.
+      If fitted $T>1$, the model was overconfident; $T<1$ indicates
+      underconfidence.
+\item Under \textbf{distribution shift}, improvements from TS may shrink
+      or disappear; this supports including ensemble baselines or
+      shift-aware evaluation.
+\end{itemize}
+
+\subsection{Limitations and Open Questions}
+\begin{itemize}
+\item \textbf{ECE is not a gold standard}: its estimate depends on binning
+      and sample size; complementing ECE with proper scoring rules and
+      reliability plots is important.
+\item \textbf{Single-temperature models cannot fix structural
+      miscalibration} (classwise, subsetwise, or confidence-conditional).
+      If fusion introduces heterogeneous error modes, more expressive
+      calibrators may be required.
+\item \textbf{Calibration under long-tail labels} is particularly hard:
+      calibration can look good overall while failing catastrophically on
+      rare classes; classwise ECE and stratified analyses are necessary.
+\item \textbf{Fusion-specific desiderata} (e.g., confidence should not
+      increase when a modality is removed) are not captured by standard
+      ECE/Brier alone.
+\end{itemize}
+
+%=============================================================
+\section{Recommendations for Evaluation Writing}
+\label{sec:recs}
+%=============================================================
+
+A strong evaluation narrative follows this structure:
+\begin{enumerate}
+\item Start with a crisp statement: ``Fusion improves discrimination but
+      can degrade calibration; for deployment-like decisions we need
+      calibrated probabilities.'' Ground it with core calibration references
+      and at least one domain-specific reference.
+\item Define the fusion setting precisely: pairwise fusion (two drugs) vs.\
+      heterogeneous fusion (ECFP + embedding), and state why the sources
+      are unbindable.
+\item Present a short theory-of-failure table (Table~\ref{tab:causes}),
+      then the experimental matrix.
+\item Report calibration with \textbf{both plots and proper scores}
+      (reliability diagrams + ECE/MCE + Brier + NLL), and be explicit
+      about binning and calibration-set design.
+\item Treat temperature scaling as the \textit{required baseline}; then
+      motivate any more complex calibrator only if TS fails in identifiable
+      ways (e.g., classwise miscalibration, shift-specific failures).
+\end{enumerate}
+
+\subsection{Reproducibility Checklist}
+To make the evaluation credible, specify:
+\begin{itemize}
+\item Exact split definitions (random vs scaffold vs cold-start vs
+      time/distribution-change).
+\item Calibration set size and sampling scheme (especially in long-tail
+      label regimes).
+\item Bin count and binning strategy for ECE/MCE; bootstrap CIs.
+\item Whether calibration is fit once per run, per fold, or per seed
+      (recommended: per fold).
+\end{itemize}
+
+\subsection{Connection to the Cold-Drug DDI Benchmark}
+In the context of the cold-drug DDI benchmark presented in the companion
+paper, the calibration findings are concrete: adding ECFP4 fusion to the
+GAT encoder improves macro PR-AUC by +6.1 pp and accuracy by +3.8 pp,
+but ECE degrades from 0.1394 to 0.1966 (+41\% relative).
+This pattern matches the ``increased capacity via fusion'' cause
+(Section~\ref{sec:mechanisms}): the fused model learns sharper decision
+boundaries from deterministic ECFP features, producing overconfident
+softmax outputs.
+Temperature scaling on the validation calibration split is the
+recommended first step; if classwise analysis reveals that tail classes
+(bottom 18 by training support) are disproportionately miscalibrated,
+vector scaling or classwise temperature should be evaluated.
+
+\end{document}

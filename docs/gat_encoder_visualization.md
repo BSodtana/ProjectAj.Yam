@@ -96,13 +96,13 @@ That is why the repo explanation pipeline visualizes final-layer attention, not 
 
 ## Why this matters for the whole DDI model
 
-The `DDIPairModel` encodes drug A and drug B with the same shared `GATEncoder`, then builds:
+The `DDIPairModel` encodes drug A and drug B with the same shared `GATEncoder`, then builds a symmetric pair feature:
 
 ```text
-[h_a, h_b, |h_a - h_b|, h_a * h_b]
+[min(h_a, h_b), max(h_a, h_b), max(h_a, h_b) - min(h_a, h_b), h_a * h_b]
 ```
 
-That 4-way interaction vector is what the classifier uses for the final 86-class prediction.
+The elementwise `min`/`max` sorting makes the pair representation invariant to swapping drug order. That 4-way interaction vector is what the classifier uses for the final 86-class prediction.
 
 ## Exact code map
 

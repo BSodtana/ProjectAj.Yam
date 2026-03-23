@@ -1,0 +1,17 @@
+{
+  "cold_dedupe_policy": "keep_all",
+  "cold_k": 5,
+  "cold_max_resamples": 1000,
+  "cold_min_test_labels": 45,
+  "cold_min_test_pairs": 5000,
+  "cold_protocol": "s1",
+  "cold_selection_objective": "selected_fold",
+  "schema": [
+    "drug_a_smiles",
+    "drug_b_smiles",
+    "y"
+  ],
+  "split_impl_version": 3,
+  "split_seed": 42,
+  "split_strategy": "cold_drug"
+}

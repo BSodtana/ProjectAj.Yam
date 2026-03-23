@@ -1,0 +1,258 @@
+\begin{thebibliography}{}
+
+\bibitem[Boldini et~al., 2023]{boldini2023xgboost}
+Boldini, D. et~al. (2023).
+\newblock Practical guidelines for the use of gradient boosting for molecular
+  property prediction.
+\newblock {\em Journal of Cheminformatics}, 15:73.
+
+\bibitem[Cao et~al., 2019]{cao2019ldam}
+Cao, K., Wei, C., Gaidon, A., Arechiga, N., and Ma, T. (2019).
+\newblock Learning imbalanced datasets with label-distribution-aware margin
+  loss.
+\newblock In {\em NeurIPS}, volume~32.
+
+\bibitem[Chen et~al., 2023]{chen2023substructure}
+Chen, Y. et~al. (2023).
+\newblock Molecular substructure-based cross-dependent network for drug-drug
+  interaction prediction.
+\newblock {\em IEEE Journal of Biomedical and Health Informatics},
+  27(11):5547--5558.
+
+\bibitem[{CNN-Siam Authors}, 2023]{cnnsiam2023}
+{CNN-Siam Authors} (2023).
+\newblock {CNN-Siam}: multimodal siamese {CNN}-based deep learning approach for
+  {DDI} prediction.
+\newblock {\em BMC Bioinformatics}, 24:340.
+
+\bibitem[{DABA-DDI Authors}, 2025]{daba2025}
+{DABA-DDI Authors} (2025).
+\newblock {DABA-DDI}: {B}ayesian calibration for drug-drug interaction
+  prediction.
+\newblock {\em PeerJ Computer Science}.
+
+\bibitem[{DDI Pharmacovigilance Review}, 2022]{clinther2022ddi}
+{DDI Pharmacovigilance Review} (2022).
+\newblock Drug-drug interactions: a pharmacovigilance road less traveled.
+\newblock {\em Clinical Therapeutics}, 44(12):1629--1638.
+
+\bibitem[Deng et~al., 2020]{deng2020ddimdl}
+Deng, Y. et~al. (2020).
+\newblock A multimodal deep learning framework for predicting {DDI} events.
+\newblock {\em Bioinformatics}, 36(15):4316--4322.
+
+\bibitem[{FAERS DDI Analysis}, 2024]{faers2024}
+{FAERS DDI Analysis} (2024).
+\newblock Drug-drug interaction adverse events from {FAERS} database analysis.
+\newblock {\em PMC}.
+
+\bibitem[Feng et~al., 2024]{feng2024bdnddi}
+Feng, X. et~al. (2024).
+\newblock {BDN-DDI}: A bilinear dual-view representation learning framework for
+  {DDI} prediction.
+\newblock {\em Computers in Biology and Medicine}.
+
+\bibitem[Fey and Lenssen, 2019]{fey2019pyg}
+Fey, M. and Lenssen, J.~E. (2019).
+\newblock Fast graph representation learning with {PyTorch} geometric.
+\newblock In {\em ICLR Workshop on Representation Learning on Graphs and
+  Manifolds}.
+
+\bibitem[Friesacher et~al., 2025]{friesacher2025calibration}
+Friesacher, A.~H. et~al. (2025).
+\newblock Achieving well-informed decision-making in drug discovery: a
+  comprehensive calibration study.
+\newblock {\em Journal of Cheminformatics}, 17:22.
+
+\bibitem[Habre et~al., 2025]{habre2025aiadvancing}
+Habre, C. et~al. (2025).
+\newblock Advancing drug-drug interactions research: integrating {AI}-powered
+  prediction, vulnerable populations, and regulatory insights.
+\newblock {\em Frontiers in Pharmacology}, 16:1632775.
+
+\bibitem[Huang et~al., 2021]{huang2021tdc}
+Huang, K. et~al. (2021).
+\newblock Therapeutics data commons: {ML} datasets and tasks for therapeutics.
+\newblock In {\em NeurIPS Datasets and Benchmarks}.
+
+\bibitem[Jiang et~al., 2021]{jiang2021gnnvsdescriptor}
+Jiang, D. et~al. (2021).
+\newblock Could graph neural networks learn better molecular representation for
+  drug discovery? {A} comparison study.
+\newblock {\em Journal of Cheminformatics}, 13:12.
+
+\bibitem[Karim et~al., 2019]{karim2019kgddi}
+Karim, M.~R. et~al. (2019).
+\newblock Drug-drug interaction prediction based on knowledge graph embeddings
+  and convolutional-{LSTM} network.
+\newblock {\em BMC Bioinformatics}, 20(Suppl 10):386.
+
+\bibitem[Li et~al., 2023]{dsnddi2023}
+Li, J. et~al. (2023).
+\newblock {DSN-DDI}: an accurate and generalized framework for {DDI} prediction
+  by dual-view representation learning.
+\newblock {\em Briefings in Bioinformatics}, 24(1):bbac597.
+
+\bibitem[Lin et~al., 2024]{lin2024masmddi}
+Lin, S. et~al. (2024).
+\newblock {MASMDDI}: multi-layer adaptive soft-mask graph neural network for
+  {DDI} prediction.
+\newblock {\em Frontiers in Pharmacology}, 15:1369403.
+
+\bibitem[Lin et~al., 2023]{lin2023evaluation}
+Lin, X. et~al. (2023).
+\newblock Comprehensive evaluation of deep and graph learning on {DDI}
+  prediction.
+\newblock {\em Briefings in Bioinformatics}, 24(4):bbad235.
+
+\bibitem[Lukashina et~al., 2021]{lukashina2021coldstart}
+Lukashina, N. et~al. (2021).
+\newblock Cold-start problems in data-driven prediction of drug-drug
+  interaction effects.
+\newblock {\em Pharmaceutics}, 13(9):1400.
+
+\bibitem[Lv et~al., 2023]{lv2023meta3d}
+Lv, K. et~al. (2023).
+\newblock 3{D} graph neural network with few-shot learning for predicting
+  {DDI}s in scaffold-based cold start scenario.
+\newblock {\em Neural Networks}, 165:568--579.
+
+\bibitem[Menon et~al., 2021]{menon2021logit}
+Menon, A.~K. et~al. (2021).
+\newblock Long-tail learning via logit adjustment.
+\newblock In {\em ICLR}.
+
+\bibitem[{MHAFR-DDI Authors}, 2025]{mhafrddi2025}
+{MHAFR-DDI Authors} (2025).
+\newblock {MHAFR-DDI}: multimodal hierarchical attention fusion and
+  relation-aware architecture for {DDI} event prediction.
+\newblock {\em BMC Bioinformatics}.
+
+\bibitem[{Multi-Level Fusion GNN Authors}, 2025]{mlfgnn2025}
+{Multi-Level Fusion GNN Authors} (2025).
+\newblock Multi-level fusion graph neural network for molecule property
+  prediction.
+\newblock arXiv preprint.
+
+\bibitem[Nyamabo et~al., 2021]{nyamabo2021ssiddi}
+Nyamabo, A.~K., Yu, Y., and Shi, S. (2021).
+\newblock {SSI-DDI}: substructure-substructure interactions for {DDI}
+  prediction.
+\newblock {\em Briefings in Bioinformatics}, 22(6):bbab133.
+
+\bibitem[{OpenDDI Consortium}, 2025]{openddi2025}
+{OpenDDI Consortium} (2025).
+\newblock {OpenDDI}: A comprehensive benchmark for {DDI} prediction.
+\newblock In {\em ICML}.
+
+\bibitem[Pang et~al., 2023]{pang2023pretraining}
+Pang, S. et~al. (2023).
+\newblock Pretraining molecular and substructural encoders for predicting
+  drug-drug interactions in cold-start scenarios.
+\newblock {\em Briefings in Bioinformatics}, 24(6):bbad399.
+
+\bibitem[{Population Pharmacogenomics Consortium},
+  2023]{pharmacogenomics2023equity}
+{Population Pharmacogenomics Consortium} (2023).
+\newblock Population pharmacogenomics for health equity.
+\newblock {\em Genes}, 14(10):1840.
+
+\bibitem[Ren et~al., 2025]{ren2025rareddie}
+Ren, Y. et~al. (2025).
+\newblock Predicting rare drug-drug interaction events with dual-granular
+  structure-adaptive and pair variational representation.
+\newblock {\em Nature Communications}, 16:5871.
+
+\bibitem[Rogers and Hahn, 2010]{rogers2010ecfp}
+Rogers, D. and Hahn, M. (2010).
+\newblock Extended-connectivity fingerprints.
+\newblock {\em Journal of Chemical Information and Modeling}, 50(5):742--754.
+
+\bibitem[Schwarz et~al., 2021]{schwarz2021attentionddi}
+Schwarz, K. et~al. (2021).
+\newblock {AttentionDDI}: {S}iamese attention-based deep learning method for
+  {DDI} predictions.
+\newblock {\em BMC Bioinformatics}, 22:412.
+
+\bibitem[Shen et~al., 2025]{shen2025ddiben}
+Shen, Y. et~al. (2025).
+\newblock Benchmarking drug-drug interaction prediction methods: a perspective
+  of distribution changes.
+\newblock {\em Bioinformatics}, 41(11):btaf569.
+
+\bibitem[Shtar et~al., 2019]{shtar2019xgboost}
+Shtar, G., Rokach, L., and Shapira, B. (2019).
+\newblock Detecting drug-drug interactions using artificial neural networks and
+  classic graph similarity measures.
+\newblock {\em PLoS ONE}, 14(8):e0219796.
+
+\bibitem[Tran et~al., 2021]{tran2021xgboost}
+Tran, T.~N. et~al. (2021).
+\newblock {ML}-based prediction of {DDI} for histamine antagonist using hybrid
+  chemical features.
+\newblock {\em Cells}, 10(11):3092.
+
+\bibitem[Veličković et~al., 2018]{velickovic2018gat}
+Veličković, P. et~al. (2018).
+\newblock Graph attention networks.
+\newblock In {\em ICLR}.
+
+\bibitem[Wang et~al., 2024]{wang2024knowddi}
+Wang, Y. et~al. (2024).
+\newblock Accurate and interpretable {DDI} prediction enabled by knowledge
+  subgraph learning.
+\newblock {\em Communications Medicine}, 4:48.
+
+\bibitem[Wang et~al., 2025]{hdnddi2025}
+Wang, Y. et~al. (2025).
+\newblock {HDN-DDI}: a novel framework for predicting {DDI}s using hierarchical
+  molecular graphs.
+\newblock {\em BMC Bioinformatics}, 26:52.
+
+\bibitem[Wishart et~al., 2018]{wishart2018drugbank}
+Wishart, D.~S. et~al. (2018).
+\newblock Drugbank 5.0: a major update to the drugbank database for 2018.
+\newblock {\em Nucleic Acids Research}, 46(D1):D1074--D1082.
+
+\bibitem[Xiong et~al., 2023]{xiong2023mrgnn}
+Xiong, Z. et~al. (2023).
+\newblock Multi-relational contrastive learning {GNN} for {DDI} event
+  prediction.
+\newblock In {\em Proceedings of AAAI}.
+
+\bibitem[Xu et~al., 2019]{xu2019gin}
+Xu, K., Hu, W., Leskovec, J., and Jegelka, J. (2019).
+\newblock How powerful are graph neural networks?
+\newblock In {\em ICLR}.
+
+\bibitem[Yu et~al., 2024]{devilddi2024}
+Yu, Z. et~al. (2024).
+\newblock Devil in the tail: a multi-view framework for drug-drug interaction
+  with imbalanced event distribution.
+\newblock {\em Briefings in Bioinformatics}, 25(6):bbae554.
+
+\bibitem[Zagidullin et~al., 2021]{zagidullin2021fingerprints}
+Zagidullin, B. et~al. (2021).
+\newblock Comparative analysis of molecular fingerprints in prediction of drug
+  combination effects.
+\newblock {\em Briefings in Bioinformatics}, 22(6):bbab291.
+
+\bibitem[Zhang et~al., 2023]{zhang2023emergnn}
+Zhang, Y. et~al. (2023).
+\newblock Emerging drug interaction prediction enabled by a flow-based graph
+  neural network with biomedical network.
+\newblock {\em Nature Computational Science}, 3:1023--1033.
+
+\bibitem[Zhang et~al., 2024]{ssfddi2024}
+Zhang, Z. et~al. (2024).
+\newblock {SSF-DDI}: a deep learning method utilizing drug sequence and
+  substructure features for {DDI} prediction.
+\newblock {\em BMC Bioinformatics}, 25:38.
+
+\bibitem[Zhu et~al., 2025]{sgtddi2025}
+Zhu, H. et~al. (2025).
+\newblock {SGT-DDI}: spatial geometry and graph transformer for {DDI}
+  prediction.
+\newblock {\em Information Fusion}.
+
+\end{thebibliography}

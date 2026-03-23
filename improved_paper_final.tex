@@ -130,17 +130,17 @@ Present work                     & GAT + ECFP + LA + DRW  & Cold-drug      & 86 
 
 \section{Pipeline Overview}
 
-The pipeline has five stages: (1) dataset loading via TDC; (2) cold-drug split generation with leakage checks; (3) molecular graph and fingerprint construction from SMILES using RDKit; (4) Siamese pair modeling with logit adjustment and deferred re-weighting; and (5) multi-metric evaluation on held-out folds. Model selection is driven by validation macro PR-AUC, chosen because it is sensitive to tail-class retrieval under imbalance---unlike accuracy or ROC-AUC, which are dominated by frequent classes.
+The pipeline has five stages: (1) dataset loading via TDC; (2) cold-drug split generation with leakage checks; (3) molecular graph and fingerprint construction from SMILES using RDKit; (4) Siamese pair modeling with logit adjustment and deferred re-weighting; and (5) multi-metric evaluation on held-out folds. Labels are remapped internally to zero-based indices \(\{0,\dots,85\}\) for the 86-way cross-entropy objective. Model selection is driven by validation macro PR-AUC, chosen because it is sensitive to tail-class retrieval under imbalance---unlike accuracy or ROC-AUC, which are dominated by frequent classes.
 
 \section{Dataset Preparation and Cold-Drug Split Design}
 
-The DrugBank DDI benchmark is loaded through TDC and standardized to three fields: \texttt{drug\_a\_smiles}, \texttt{drug\_b\_smiles}, and integer label \texttt{y}. The split procedure normalizes all pairs to unordered form, removes conflicting assignments (pairs labeled with multiple interaction types), and uses degree-aware balancing to assign each drug to exactly one fold, with explicit graph-based leakage checks. The preprocessing summary is:
+The DrugBank DDI benchmark is loaded through TDC and standardized to three fields: \texttt{drug\_a\_smiles}, \texttt{drug\_b\_smiles}, and integer label \texttt{y}. The split procedure first canonicalizes each row into unordered form by lexicographically sorting the two SMILES strings, then removes ambiguous pair groups whose members carry more than one label, and finally uses degree-aware balancing to assign each drug to exactly one fold, with explicit pair-overlap checks. The preprocessing summary is:
 \begin{itemize}
 \item Raw rows: 191{,}808; raw unordered pair groups: 191{,}402
 \item Conflicting pair groups removed: 406; conflicting rows removed: 812
 \item Clean rows retained: 190{,}996
 \end{itemize}
-The selected configuration uses protocol S1 with $k=5$ folds and seed 42. Protocol S1 enforces strict cold-drug separation: every drug is assigned to exactly one fold, and all pairs containing a fold-$i$ drug are placed in fold $i$, preventing any test drug from appearing in training under any pair context. Split statistics are shown in Table~\ref{tab:split_stats}.
+The selected configuration uses protocol S1 with $k=5$ folds, seed 42, guardrails of at least 5{,}000 test pairs and 45 test labels, and the \texttt{selected\_fold} objective. For outer fold $f$, the validation fold is $(f+1)\bmod 5$ and the test fold is $f$. A pair is assigned to train if both drugs belong to non-holdout folds, to validation if exactly one drug belongs to the validation fold and the other belongs to a training fold, and to test if exactly one drug belongs to the test fold and the other belongs to a training fold. All remaining pairs are excluded for that outer fold. This means every validation/test pair contains exactly one drug unseen during training, while same-holdout and cross-holdout pairs are intentionally discarded. Split statistics are shown in Table~\ref{tab:split_stats}.
 
 \begin{table}[H]
 \centering
@@ -153,7 +153,9 @@ Statistic & Mean Across 5 Folds & Fold $f4$ \\
 Training rows        & 68{,}619.4 & 68{,}562 \\
 Validation rows      & 45{,}978.2 & 46{,}038 \\
 Test rows            & 45{,}978.2 & 46{,}033 \\
+Excluded rows        & 30{,}420.2 & 30{,}363 \\
 Test labels present  & 81.8       & 85       \\
+Test labels absent from train & 4.2 & 3 \\
 Drugs assigned       & 341.2      & 342      \\
 Min.\ test pairs     & 5{,}000    & 5{,}000  \\
 Min.\ test labels    & 45         & 45       \\
@@ -161,27 +163,27 @@ Min.\ test labels    & 45         & 45       \\
 \end{tabular}
 \end{table}
 
-On average, 81.8 of 86 classes appear in each test fold. Variation in class coverage explains part of the fold-wise variation in tail-class metrics: a fold with more classes present in test data will naturally yield evaluable scores for more minority classes.
+On average, 81.8 of 86 classes appear in each test fold. The split totals do not sum to 190{,}996 because protocol S1 excludes holdout--holdout pairs for each outer fold. In addition, the current split generator does not enforce full closed-set label coverage: depending on the fold, 3--6 test labels are absent from the corresponding training partition.
 
 \section{Molecular Graph and Fingerprint Features}
 
-Each drug is parsed from SMILES into a molecular graph using RDKit. Node features (7 dimensions) encode atomic number, degree, aromaticity flag, formal charge, hybridization code, ring membership flag, and total hydrogen count. Edge features (5 dimensions) encode bond type, conjugation flag, aromaticity flag, ring membership flag, and stereo code. The ECFP4 fingerprint (radius 2, 2048 bits) is projected through a learnable linear layer, batch-normalized, passed through ELU, and dropped with probability 0.2 before fusion with the graph embedding. This projection allows the model to weight fingerprint regions by task relevance rather than using the bit vector passively.
+Each drug is parsed from SMILES into a molecular graph using RDKit. Invalid or zero-atom molecules are skipped. Bonds are stored in both directions, and GAT layers add self-loops internally. Node features (7 dimensions) encode atomic number, degree, aromaticity flag, formal charge, hybridization code, ring membership flag, and total hydrogen count. Edge features (5 dimensions) encode bond type, conjugation flag, aromaticity flag, ring membership flag, and stereo code. The strongest baseline also uses an ECFP4 fingerprint generated as a 2048-bit Morgan fingerprint with radius 2 and \texttt{useChirality=False}. The fingerprint branch applies \texttt{Linear}(2048,128) \(\rightarrow\) \texttt{LayerNorm} \(\rightarrow\) \texttt{ReLU} \(\rightarrow\) \texttt{Dropout}(0.2) before fusion with the graph embedding.
 
 \section{Siamese Pair Model}
 
-The architecture uses a Siamese encoder: both drugs share the same graph attention backbone, enforcing permutation symmetry---swapping $d_a$ and $d_b$ should not alter the interaction prediction. Each drug passes through three GAT layers (4 attention heads, hidden dimension 64), with ELU activation and dropout (0.2) between layers, followed by global mean pooling to produce a graph-level embedding $\mathbf{g} \in \mathbb{R}^{128}$. The projected fingerprint vector $\mathbf{p} \in \mathbb{R}^{128}$ is concatenated with $\mathbf{g}$ and passed through a fusion MLP to yield the final drug embedding:
+The architecture uses a Siamese encoder: both drugs share the same graph attention backbone. The first two GAT layers use 4 heads with 64 hidden channels per head, concatenated outputs, ELU activation, and dropout 0.2; the final GAT layer uses 4 heads with \texttt{concat=False} and outputs a 128-dimensional pooled graph embedding $\mathbf{g} \in \mathbb{R}^{128}$. The projected fingerprint vector $\mathbf{p} \in \mathbb{R}^{128}$ is concatenated with $\mathbf{g}$ and passed through a fusion MLP to yield the final drug embedding:
 \begin{equation}
 \mathbf{h}_a = \phi([\mathbf{g}_a \| \mathbf{p}_a]), \qquad \mathbf{h}_b = \phi([\mathbf{g}_b \| \mathbf{p}_b]),
 \end{equation}
-where $\phi$ denotes the fusion MLP and $\|$ denotes concatenation. The pair representation combines four complementary views:
+where $\phi$ denotes a fusion block \texttt{Linear}(256,128) \(\rightarrow\) \texttt{ReLU} \(\rightarrow\) \texttt{Dropout}(0.2), and $\|$ denotes concatenation. The pair representation is permutation-invariant in implementation. Let $\mathbf{h}_{\min} = \min(\mathbf{h}_a,\mathbf{h}_b)$ and $\mathbf{h}_{\max} = \max(\mathbf{h}_a,\mathbf{h}_b)$ element-wise. The pair representation combines four complementary views:
 \begin{equation}
-\mathbf{z}_{ab} = [\mathbf{h}_a \| \mathbf{h}_b \| |\mathbf{h}_a - \mathbf{h}_b| \| \mathbf{h}_a \odot \mathbf{h}_b].
+\mathbf{z}_{ab} = [\mathbf{h}_{\min} \| \mathbf{h}_{\max} \| (\mathbf{h}_{\max} - \mathbf{h}_{\min}) \| \mathbf{h}_a \odot \mathbf{h}_b].
 \end{equation}
-Concatenation $\mathbf{h}_a \| \mathbf{h}_b$ captures individual drug properties; absolute difference $|\mathbf{h}_a - \mathbf{h}_b|$ captures structural dissimilarity; element-wise product $\mathbf{h}_a \odot \mathbf{h}_b$ captures multiplicative co-activation patterns. With $\mathbf{h}_a, \mathbf{h}_b \in \mathbb{R}^{128}$, the pair feature vector has dimension 512. A classifier head with a single hidden layer of 256 units (ELU, dropout 0.2) maps this to 86 output logits.
+With $\mathbf{h}_a, \mathbf{h}_b \in \mathbb{R}^{128}$, the pair feature vector has dimension 512. A classifier head \texttt{Linear}(512,256) \(\rightarrow\) \texttt{ReLU} \(\rightarrow\) \texttt{Dropout}(0.2) \(\rightarrow\) \texttt{Linear}(256,86) maps this to 86 output logits.
 
 \section{Long-Tail Objective}
 
-Class imbalance is addressed through two mechanisms. Logit adjustment shifts the decision boundary by adding scaled class log-priors to raw logits:
+Class imbalance is addressed through two mechanisms. Logit adjustment shifts the decision boundary by adding scaled train-split class log-priors to raw logits:
 \begin{equation}
 \tilde{\mathbf{s}} = \mathbf{s} + \tau \log \boldsymbol{\pi},
 \end{equation}
@@ -193,7 +195,7 @@ Deferred re-weighting activates class weights only from epoch 15 onward (the fin
 \begin{equation}
 w_c = \mathrm{clip}\!\left(\frac{1}{\sqrt{n_c + \epsilon}},\; 0.25,\; 4.0\right),
 \end{equation}
-where $n_c$ is the training count for class $c$ and $\epsilon = 10^{-12}$. The lower clip bound of 0.25 ensures majority classes remain informative; the upper bound of 4.0 prevents the rarest classes from dominating optimization and destabilizing learned features \cite{cao2019ldam}. The learning rate decreases from $10^{-3}$ to $2 \times 10^{-4}$ at the same transition.
+where $n_c$ is the training count for class $c$ and $\epsilon = 10^{-12}$. In implementation, seen-class weights are normalized before clipping. The lower clip bound of 0.25 ensures majority classes remain informative; the upper bound of 4.0 prevents the rarest classes from dominating optimization and destabilizing learned features \cite{cao2019ldam}. The learning rate decreases from $10^{-3}$ to $2 \times 10^{-4}$ at the same transition.
 
 \section{Experimental Configuration}
 
@@ -213,6 +215,8 @@ Pair feature / classifier hidden & 512 / 256 \\
 Dropout                  & 0.2 \\
 Batch size / epochs      & 64 / 20 \\
 Optimizer                & Adam, LR $10^{-3}$$\to$$2\!\times\!10^{-4}$, WD $10^{-5}$ \\
+Early stopping          & patience 5 on validation macro PR-AUC \\
+Label smoothing         & 0.0 \\
 Logit adjustment         & $\tau = 0.5$ \\
 DRW switch               & epoch 15 (70\% of horizon) \\
 Selection metric         & validation macro PR-AUC \\
@@ -220,7 +224,7 @@ Selection metric         & validation macro PR-AUC \\
 \end{tabular}
 \end{table}
 
-Evaluation includes accuracy, macro- and micro-F1, Cohen's kappa, macro ROC-AUC, macro PR-AUC, Expected Calibration Error (ECE), Brier score, and tail macro PR-AUC (computed over the bottom 20\% of classes by training support). Macro PR-AUC is the selection metric because it penalizes both false positives against the large negative pool and false negatives in small-support classes, making it the most informative metric under imbalance.
+Evaluation uses deterministic seeding across \texttt{random}, NumPy, PyTorch, CUDA, and DataLoader workers. Accuracy, micro-F1, and Cohen's kappa are computed from argmax predictions over the adjusted softmax output. Macro-F1 is computed only over labels present in the evaluation targets. Macro ROC-AUC and macro PR-AUC are one-vs-rest averages over evaluable classes, with macro PR-AUC implemented via \texttt{average\_precision\_score}. ECE uses 15 equal-width max-confidence bins, and the multiclass Brier score is the mean squared error between the predicted probability vector and the one-hot target vector. Tail macro PR-AUC is computed over the bottom \(\lceil 0.2 \times 86 \rceil = 18\) classes by training support, including zero-count classes. Validation macro PR-AUC remains the model-selection metric because it penalizes both false positives against the large negative pool and false negatives in small-support classes.
 
 %=============================================================
 \chapter{Results and Discussion}

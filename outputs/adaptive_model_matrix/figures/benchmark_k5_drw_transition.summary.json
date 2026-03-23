@@ -1,0 +1,57 @@
+{
+  "runs_root": "outputs/adaptive_model_matrix/benchmark_k5/runs",
+  "run_glob": "gat_ecfp_la_drw_fold*",
+  "runs_used": [
+    "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold0",
+    "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold2",
+    "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold3",
+    "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold4"
+  ],
+  "drw_start_epoch": 15,
+  "epoch_window": [
+    12,
+    20
+  ],
+  "mean_train_objective_loss": {
+    "12": 0.33042287919619245,
+    "13": 0.3211357201327292,
+    "14": 0.31651955601186665,
+    "15": 0.28528594970603094,
+    "16": 0.26136407680660945,
+    "17": 0.24722180112718434,
+    "18": 0.2431396463007553,
+    "19": 0.2398397446624669,
+    "20": 0.23391816805298382
+  },
+  "mean_train_plain_nll": {
+    "12": 0.33042287919619245,
+    "13": 0.3211357201327292,
+    "14": 0.31651955601186665,
+    "15": 0.2719737767442717,
+    "16": 0.2555391880431459,
+    "17": 0.24493491176552343,
+    "18": 0.2402655211816547,
+    "19": 0.23766660329437356,
+    "20": 0.2328203630085805
+  },
+  "mean_valid_macro_pr_auc_ovr": {
+    "12": 0.574909080394827,
+    "13": 0.5766090226843084,
+    "14": 0.5770091535423842,
+    "15": 0.5870989683874434,
+    "16": 0.5940442542159009,
+    "17": 0.5962672740022241,
+    "18": 0.5960296689653455,
+    "19": 0.597120129273526,
+    "20": 0.5962168399438458
+  },
+  "seen_tail_weight_mean": 2.7332359034749434,
+  "mid_weight_mean": 0.8209935643641372,
+  "head_weight_mean": 0.26594162307374125,
+  "tail_weight_ratio_vs_head_mean": 10.281231556618284,
+  "tail_weight_ratio_vs_head_std": 0.6485767631796789,
+  "tail_share_pre_mean": 0.0010715352197178346,
+  "tail_share_pre_std": 0.00027833333155119554,
+  "tail_share_post_mean": 0.008902759931955617,
+  "tail_share_post_std": 0.0017405847220776163
+}

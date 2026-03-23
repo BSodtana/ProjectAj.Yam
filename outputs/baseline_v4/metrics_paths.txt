@@ -1,0 +1,2 @@
+outputs/baseline_v4/la_tau_0p5_e15_l50000/evaluation_metrics.json
+outputs/baseline_v4/la_tau_1p5_e15_l50000/evaluation_metrics.json

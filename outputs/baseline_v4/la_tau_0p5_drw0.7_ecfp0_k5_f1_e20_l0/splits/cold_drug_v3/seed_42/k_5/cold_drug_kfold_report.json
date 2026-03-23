@@ -1,0 +1,282 @@
+{
+  "assignment": {
+    "accepted_attempt": 168,
+    "attempts_tried": 169,
+    "fold_drug_counts": [
+      342,
+      341,
+      341,
+      341,
+      341
+    ],
+    "fold_weight_totals": [
+      76399,
+      76398,
+      76398,
+      76399,
+      76398
+    ],
+    "selection_objective": "selected_fold",
+    "selection_score": [
+      86,
+      45945,
+      79,
+      45812,
+      229591
+    ]
+  },
+  "cold_dedupe_policy": "keep_all",
+  "cold_fold": 1,
+  "cold_k": 5,
+  "cold_protocol": "s1",
+  "cold_selection_objective": "selected_fold",
+  "folds": [
+    {
+      "fold": 0,
+      "guardrail_pass": true,
+      "n_drugs": 342,
+      "test_labels_missing": 7,
+      "test_labels_present": 79,
+      "test_missing_label_ids": [
+        0,
+        14,
+        38,
+        44,
+        45,
+        61,
+        77
+      ],
+      "test_pairs": 45812,
+      "test_rows": 45812,
+      "train_labels_missing": 9,
+      "train_labels_present": 77,
+      "train_missing_label_ids": [
+        0,
+        14,
+        30,
+        38,
+        42,
+        44,
+        45,
+        77,
+        85
+      ],
+      "train_pairs": 68696,
+      "train_rows": 68696,
+      "valid_fold": 1,
+      "valid_labels_missing": 5,
+      "valid_labels_present": 81,
+      "valid_missing_label_ids": [
+        27,
+        30,
+        34,
+        78,
+        85
+      ],
+      "valid_pairs": 45991,
+      "valid_rows": 45991
+    },
+    {
+      "fold": 1,
+      "guardrail_pass": true,
+      "n_drugs": 341,
+      "test_labels_missing": 0,
+      "test_labels_present": 86,
+      "test_missing_label_ids": [],
+      "test_pairs": 45945,
+      "test_rows": 45945,
+      "train_labels_missing": 7,
+      "train_labels_present": 79,
+      "train_missing_label_ids": [
+        0,
+        14,
+        35,
+        38,
+        44,
+        45,
+        77
+      ],
+      "train_pairs": 68659,
+      "train_rows": 68659,
+      "valid_fold": 2,
+      "valid_labels_missing": 8,
+      "valid_labels_present": 78,
+      "valid_missing_label_ids": [
+        0,
+        14,
+        25,
+        38,
+        42,
+        44,
+        45,
+        77
+      ],
+      "valid_pairs": 45933,
+      "valid_rows": 45933
+    },
+    {
+      "fold": 2,
+      "guardrail_pass": true,
+      "n_drugs": 341,
+      "test_labels_missing": 5,
+      "test_labels_present": 81,
+      "test_missing_label_ids": [
+        25,
+        33,
+        40,
+        43,
+        55
+      ],
+      "test_pairs": 45977,
+      "test_rows": 45977,
+      "train_labels_missing": 4,
+      "train_labels_present": 82,
+      "train_missing_label_ids": [
+        40,
+        43,
+        55,
+        61
+      ],
+      "train_pairs": 68626,
+      "train_rows": 68626,
+      "valid_fold": 3,
+      "valid_labels_missing": 3,
+      "valid_labels_present": 83,
+      "valid_missing_label_ids": [
+        27,
+        41,
+        51
+      ],
+      "valid_pairs": 45966,
+      "valid_rows": 45966
+    },
+    {
+      "fold": 3,
+      "guardrail_pass": true,
+      "n_drugs": 341,
+      "test_labels_missing": 6,
+      "test_labels_present": 80,
+      "test_missing_label_ids": [
+        6,
+        12,
+        27,
+        41,
+        49,
+        58
+      ],
+      "test_pairs": 45870,
+      "test_rows": 45870,
+      "train_labels_missing": 8,
+      "train_labels_present": 78,
+      "train_missing_label_ids": [
+        6,
+        12,
+        40,
+        43,
+        49,
+        55,
+        58,
+        64
+      ],
+      "train_pairs": 68765,
+      "train_rows": 68765,
+      "valid_fold": 4,
+      "valid_labels_missing": 6,
+      "valid_labels_present": 80,
+      "valid_missing_label_ids": [
+        0,
+        33,
+        40,
+        43,
+        55,
+        61
+      ],
+      "valid_pairs": 45795,
+      "valid_rows": 45795
+    },
+    {
+      "fold": 4,
+      "guardrail_pass": true,
+      "n_drugs": 341,
+      "test_labels_missing": 4,
+      "test_labels_present": 82,
+      "test_missing_label_ids": [
+        0,
+        30,
+        67,
+        85
+      ],
+      "test_pairs": 45987,
+      "test_rows": 45987,
+      "train_labels_missing": 8,
+      "train_labels_present": 78,
+      "train_missing_label_ids": [
+        6,
+        12,
+        27,
+        30,
+        49,
+        58,
+        64,
+        85
+      ],
+      "train_pairs": 68651,
+      "train_rows": 68651,
+      "valid_fold": 0,
+      "valid_labels_missing": 5,
+      "valid_labels_present": 81,
+      "valid_missing_label_ids": [
+        6,
+        12,
+        49,
+        58,
+        61
+      ],
+      "valid_pairs": 45906,
+      "valid_rows": 45906
+    }
+  ],
+  "guardrails": {
+    "max_resamples": 200,
+    "min_test_labels": 45,
+    "min_test_pairs": 5000
+  },
+  "preprocess": {
+    "conflict_pair_groups_dropped": 406,
+    "conflict_rows_dropped": 812,
+    "dedupe_policy": "keep_all",
+    "dedupe_rows_removed": 0,
+    "input_pair_groups": 191402,
+    "input_rows": 191808,
+    "kept_pair_groups": 190996,
+    "kept_rows_after_policy": 190996,
+    "pair_multiplicity_hist": {
+      "1": 190996
+    }
+  },
+  "seed": 42,
+  "split_impl_version": 3,
+  "split_strategy": "cold_drug",
+  "summary": {
+    "test_labels_present": {
+      "mean": 81.6,
+      "std": 2.416609194718914
+    },
+    "test_pairs": {
+      "mean": 45918.2,
+      "std": 67.0981370829325
+    },
+    "test_rows": {
+      "mean": 45918.2,
+      "std": 67.0981370829325
+    },
+    "train_rows": {
+      "mean": 68679.4,
+      "std": 48.32639030591877
+    },
+    "valid_rows": {
+      "mean": 45918.2,
+      "std": 68.0158804986012
+    }
+  }
+}
