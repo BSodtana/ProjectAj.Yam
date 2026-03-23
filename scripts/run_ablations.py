@@ -45,6 +45,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cold_min_test_labels", type=int, default=45)
     p.add_argument("--cold_max_resamples", type=int, default=200)
     p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument(
+        "--cold_selection_objective",
+        type=str,
+        default="selected_fold",
+        choices=["selected_fold", "global_min", "first_pass"],
+    )
     p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     return p.parse_args()
 
@@ -216,6 +222,8 @@ def main() -> None:
                 str(args.cold_max_resamples),
                 "--cold_dedupe_policy",
                 str(args.cold_dedupe_policy),
+                "--cold_selection_objective",
+                str(args.cold_selection_objective),
             ]
             if bool(args.cold_write_legacy_flat_splits):
                 train_cmd.append("--cold_write_legacy_flat_splits")
@@ -288,6 +296,8 @@ def main() -> None:
                 str(args.cold_max_resamples),
                 "--cold_dedupe_policy",
                 str(args.cold_dedupe_policy),
+                "--cold_selection_objective",
+                str(args.cold_selection_objective),
             ]
             if bool(args.cold_write_legacy_flat_splits):
                 eval_cmd.append("--cold_write_legacy_flat_splits")

@@ -1,0 +1,236 @@
+{
+  "batch_size": 64,
+  "benchmark_dir": "outputs/adaptive_model_matrix/benchmark_k5",
+  "cold_dedupe_policy": "keep_all",
+  "cold_max_resamples": 1000,
+  "cold_min_test_labels": 45,
+  "cold_min_test_pairs": 5000,
+  "cold_protocol": "s1",
+  "cold_selection_objective": "selected_fold",
+  "drw_lr_drop": 0.2,
+  "drw_ratio": 0.7,
+  "drw_start_epoch": 15,
+  "epochs": 20,
+  "fallback_cold_k": 5,
+  "fallback_used": false,
+  "fold_resolution_attempts": [
+    {
+      "cold_k": 5,
+      "cold_max_resamples": 1000,
+      "fallback_candidate": false,
+      "success": true
+    }
+  ],
+  "generated_at_utc": "2026-03-14T20:48:19.141512+00:00",
+  "markdown_table": "outputs/adaptive_model_matrix/benchmark_k5/benchmark_table.md",
+  "mean_std_results_csv": "outputs/adaptive_model_matrix/benchmark_k5/benchmark_results_mean_std.csv",
+  "metric_columns": [
+    "accuracy",
+    "macro_f1",
+    "micro_f1",
+    "kappa",
+    "macro_roc_auc_ovr",
+    "macro_pr_auc_ovr",
+    "tail_macro_pr_auc_ovr",
+    "ece",
+    "brier_score",
+    "objective_loss",
+    "nll_loss",
+    "n_classes_scored",
+    "n_classes_missing_pos",
+    "n_classes_missing_neg",
+    "tail_n_classes_scored"
+  ],
+  "models": [
+    "GAT only",
+    "GIN only",
+    "GAT + ECFP",
+    "GAT + ECFP + LA",
+    "GAT + ECFP + LA + DRW"
+  ],
+  "preferred_cold_k": 5,
+  "raw_results_csv": "outputs/adaptive_model_matrix/benchmark_k5/benchmark_results_raw.csv",
+  "resolved_cold_k": 5,
+  "run_records": [
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold0/checkpoints/best.pt",
+      "cold_fold": 0,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold0/evaluation_metrics.json",
+      "model": "GAT only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold0"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold1/checkpoints/best.pt",
+      "cold_fold": 1,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold1/evaluation_metrics.json",
+      "model": "GAT only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold1"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold2/checkpoints/best.pt",
+      "cold_fold": 2,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold2/evaluation_metrics.json",
+      "model": "GAT only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold2"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold3/checkpoints/best.pt",
+      "cold_fold": 3,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold3/evaluation_metrics.json",
+      "model": "GAT only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold3"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold4/checkpoints/best.pt",
+      "cold_fold": 4,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold4/evaluation_metrics.json",
+      "model": "GAT only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_only_fold4"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold0/checkpoints/best.pt",
+      "cold_fold": 0,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold0/evaluation_metrics.json",
+      "model": "GIN only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold0"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold1/checkpoints/best.pt",
+      "cold_fold": 1,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold1/evaluation_metrics.json",
+      "model": "GIN only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold1"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold2/checkpoints/best.pt",
+      "cold_fold": 2,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold2/evaluation_metrics.json",
+      "model": "GIN only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold2"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold3/checkpoints/best.pt",
+      "cold_fold": 3,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold3/evaluation_metrics.json",
+      "model": "GIN only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold3"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold4/checkpoints/best.pt",
+      "cold_fold": 4,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold4/evaluation_metrics.json",
+      "model": "GIN only",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gin_only_fold4"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold0/checkpoints/best.pt",
+      "cold_fold": 0,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold0/evaluation_metrics.json",
+      "model": "GAT + ECFP",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold0"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold1/checkpoints/best.pt",
+      "cold_fold": 1,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold1/evaluation_metrics.json",
+      "model": "GAT + ECFP",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold1"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold2/checkpoints/best.pt",
+      "cold_fold": 2,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold2/evaluation_metrics.json",
+      "model": "GAT + ECFP",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold2"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold3/checkpoints/best.pt",
+      "cold_fold": 3,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold3/evaluation_metrics.json",
+      "model": "GAT + ECFP",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold3"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold4/checkpoints/best.pt",
+      "cold_fold": 4,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold4/evaluation_metrics.json",
+      "model": "GAT + ECFP",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_fold4"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold0/checkpoints/best.pt",
+      "cold_fold": 0,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold0/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold0"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold1/checkpoints/best.pt",
+      "cold_fold": 1,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold1/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold1"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold2/checkpoints/best.pt",
+      "cold_fold": 2,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold2/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold2"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold3/checkpoints/best.pt",
+      "cold_fold": 3,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold3/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold3"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold4/checkpoints/best.pt",
+      "cold_fold": 4,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold4/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_fold4"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold0/checkpoints/best.pt",
+      "cold_fold": 0,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold0/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA + DRW",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold0"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold1/checkpoints/best.pt",
+      "cold_fold": 1,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold1/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA + DRW",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold1"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold2/checkpoints/best.pt",
+      "cold_fold": 2,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold2/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA + DRW",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold2"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold3/checkpoints/best.pt",
+      "cold_fold": 3,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold3/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA + DRW",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold3"
+    },
+    {
+      "checkpoint_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold4/checkpoints/best.pt",
+      "cold_fold": 4,
+      "metrics_path": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold4/evaluation_metrics.json",
+      "model": "GAT + ECFP + LA + DRW",
+      "run_dir": "outputs/adaptive_model_matrix/benchmark_k5/runs/gat_ecfp_la_drw_fold4"
+    }
+  ],
+  "runs_completed": 25,
+  "runs_expected": 25,
+  "split_cache_dir": "outputs/adaptive_model_matrix/split_cache/k5",
+  "split_seed": 42,
+  "tau": 0.5
+}

@@ -26,7 +26,6 @@ from ddigat.utils.class_weights import (
     class_counts_payload,
     class_weights_payload,
     compute_class_priors,
-    compute_class_counts,
     compute_class_weights,
     compute_tail_class_ids,
 )
@@ -56,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_layers", type=int, default=3)
     p.add_argument("--heads", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.2)
-    p.add_argument("--encoder_type", type=str, default="gat", choices=["gat", "gcn", "gin"])
+    p.add_argument("--encoder_type", type=str, default="gat", choices=["gat", "gcn", "gin", "mlp"])
     p.add_argument("--use_ecfp_features", action="store_true")
     p.add_argument("--use_physchem_features", action="store_true")
     p.add_argument("--use_maccs_features", action="store_true")
@@ -69,6 +68,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--class_weight_beta", type=float, default=0.9999)
     p.add_argument("--class_weight_clip_min", type=float, default=0.25)
     p.add_argument("--class_weight_clip_max", type=float, default=4.0)
+    p.add_argument("--class_weight_eps", type=float, default=1e-12)
+    p.add_argument("--enable_drw", action="store_true")
+    p.add_argument("--drw_start_epoch", type=int, default=None)
+    p.add_argument("--drw_lr_drop", type=float, default=0.2)
     p.add_argument("--label_smoothing", type=float, default=0.0)
     p.add_argument(
         "--logit_adjust_tau",
@@ -85,7 +88,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cold_min_test_labels", type=int, default=45)
     p.add_argument("--cold_max_resamples", type=int, default=200)
     p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument(
+        "--cold_selection_objective",
+        type=str,
+        default="selected_fold",
+        choices=["selected_fold", "global_min", "first_pass"],
+    )
     p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
+    p.add_argument(
+        "--split_cache_dir",
+        type=str,
+        default=None,
+        help="Optional shared directory used for persisted split cache; defaults to output_dir.",
+    )
     return p.parse_args()
 
 
@@ -110,6 +125,53 @@ def resolve_device(device_arg: str) -> torch.device:
     return torch.device(device_arg)
 
 
+def compute_drw_class_weights(
+    train_counts: torch.Tensor,
+    *,
+    method: str,
+    normalize: str,
+    clip_min: float,
+    clip_max: float,
+    eps: float,
+) -> torch.Tensor:
+    counts = train_counts.detach().to(dtype=torch.float64, device=torch.device("cpu")).reshape(-1)
+    if counts.numel() <= 0:
+        raise ValueError("train_counts must be non-empty for DRW.")
+    if float(eps) <= 0.0:
+        raise ValueError(f"class_weight_eps must be > 0, got {eps}")
+    if float(clip_min) < 0.0 or float(clip_max) <= 0.0 or float(clip_min) > float(clip_max):
+        raise ValueError(f"Invalid clip bounds: clip_min={clip_min}, clip_max={clip_max}")
+
+    method_norm = str(method).lower().strip()
+    if method_norm != "inv_sqrt":
+        raise ValueError(f"DRW supports class_weight_method='inv_sqrt' only, got {method}")
+
+    seen = counts > 0
+    n_seen = int(seen.sum().item())
+    if n_seen <= 0:
+        raise ValueError("All classes are unseen in train split; cannot build DRW weights.")
+
+    w = torch.zeros_like(counts, dtype=torch.float64)
+    w[seen] = 1.0 / torch.sqrt(counts[seen] + float(eps))
+
+    normalize_mode = str(normalize).lower().strip()
+    if normalize_mode in {"sample_mean", "mean_seen"}:
+        mean_seen = torch.mean(w[seen])
+        if not torch.isfinite(mean_seen).item() or float(mean_seen.item()) <= 0.0:
+            raise ValueError(f"Invalid seen-class mean during DRW normalization: {float(mean_seen.item())}")
+        w[seen] = w[seen] / mean_seen
+    elif normalize_mode in {"none", ""}:
+        pass
+    else:
+        raise ValueError(
+            f"Unsupported class_weight_normalize for DRW: {normalize}. Use sample_mean, mean_seen, or none."
+        )
+
+    w[seen] = torch.clamp(w[seen], min=float(clip_min), max=float(clip_max))
+    w[~seen] = 0.0
+    return w.to(dtype=torch.float32)
+
+
 def main() -> None:
     args = parse_args()
     if float(args.logit_adjust_tau) > 0.0 and str(args.split_strategy) not in {"cold_drug", "cold_drug_v2"}:
@@ -120,10 +182,14 @@ def main() -> None:
     device = resolve_device(args.device)
     seed_everything(args.seed)
     ensure_dir(args.output_dir)
+    split_cache_dir = args.split_cache_dir or args.output_dir
+    is_feature_only = str(args.encoder_type).lower().strip() == "mlp"
+    if is_feature_only and not bool(args.use_ecfp_features or args.use_physchem_features or args.use_maccs_features):
+        raise ValueError("encoder_type='mlp' requires at least one enabled drug feature pathway.")
 
     train_df, valid_df, test_df, label_map = load_tdc_drugbank_ddi(
         args.data_dir,
-        output_dir=args.output_dir,
+        output_dir=split_cache_dir,
         split_strategy=args.split_strategy,
         split_seed=args.split_seed,
         cold_k=args.cold_k,
@@ -133,19 +199,21 @@ def main() -> None:
         cold_min_test_labels=args.cold_min_test_labels,
         cold_max_resamples=args.cold_max_resamples,
         cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_selection_objective=args.cold_selection_objective,
         cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:
         train_df = subsample_dataframe(train_df, limit=args.limit, seed=args.seed, label_col="y", ensure_class_coverage=True)
 
-    cache = GraphCache(output_dir=args.output_dir)
+    cache = None if is_feature_only else GraphCache(output_dir=args.output_dir)
     all_smiles = (
         list(train_df["drug_a_smiles"])
         + list(train_df["drug_b_smiles"])
         + list(valid_df["drug_a_smiles"])
         + list(valid_df["drug_b_smiles"])
     )
-    cache.build(all_smiles, show_progress=True)
+    if cache is not None:
+        cache.build(all_smiles, show_progress=True)
     feature_cache: DrugFeatureCache | None = None
     resolved_physchem_dim = 0
     use_any_drug_features = bool(args.use_ecfp_features or args.use_physchem_features or args.use_maccs_features)
@@ -190,6 +258,9 @@ def main() -> None:
     cfg.train.class_weight_beta = float(args.class_weight_beta)
     cfg.train.class_weight_clip_min = float(args.class_weight_clip_min)
     cfg.train.class_weight_clip_max = float(args.class_weight_clip_max)
+    cfg.train.class_weight_eps = float(args.class_weight_eps)
+    cfg.train.enable_drw = bool(args.enable_drw)
+    cfg.train.drw_lr_drop = float(args.drw_lr_drop)
     cfg.train.label_smoothing = float(args.label_smoothing)
     cfg.train.logit_adjust_tau = float(args.logit_adjust_tau)
     cfg.train.split_strategy = str(args.split_strategy)
@@ -257,7 +328,19 @@ def main() -> None:
             if isinstance(loaded_stats, dict):
                 feature_diag["physchem_scaler"] = loaded_stats
         save_json(feature_diag, diagnostics_dir / "feature_cache.json")
-    class_counts = compute_class_counts(train_ds.df["y"].to_numpy(dtype=int), num_classes=cfg.model.num_classes)
+    train_labels_cpu = torch.as_tensor(train_ds.df["y"].to_numpy(dtype=int), dtype=torch.long, device=torch.device("cpu"))
+    train_counts_t = torch.bincount(train_labels_cpu, minlength=int(cfg.model.num_classes)).to(dtype=torch.long)
+    class_counts = train_counts_t.numpy().astype(int, copy=True)
+    if class_counts.shape[0] != int(cfg.model.num_classes):
+        raise RuntimeError(
+            f"train_counts size mismatch: expected {cfg.model.num_classes}, got {class_counts.shape[0]}"
+        )
+    drw_start_epoch = args.drw_start_epoch
+    if drw_start_epoch is None:
+        drw_start_epoch = int(0.7 * int(args.epochs)) + 1
+    if int(drw_start_epoch) < 1 or int(drw_start_epoch) > int(args.epochs):
+        raise ValueError(f"drw_start_epoch must be in [1, {int(args.epochs)}], got {drw_start_epoch}")
+    cfg.train.drw_start_epoch = int(drw_start_epoch)
     cfg.train.class_counts = [int(v) for v in class_counts.tolist()]
     save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "class_counts.json")
     save_json(class_counts_payload(class_counts, num_classes=cfg.model.num_classes), diagnostics_dir / "train_counts.json")
@@ -300,10 +383,10 @@ def main() -> None:
     )
     save_json(
         class_weights_payload(
-            enabled=bool(args.use_class_weights),
+            enabled=bool(args.use_class_weights or args.enable_drw),
             method=str(args.class_weight_method),
             beta=float(args.class_weight_beta),
-            eps=float(cfg.train.class_weight_eps),
+            eps=float(args.class_weight_eps),
             clip_min=float(args.class_weight_clip_min),
             clip_max=float(args.class_weight_clip_max),
             computation=class_weight_info,
@@ -311,7 +394,33 @@ def main() -> None:
         diagnostics_dir / "class_weights.json",
     )
 
-    if args.use_class_weights:
+    drw_class_weights: torch.Tensor | None = None
+    if bool(args.enable_drw):
+        drw_weights_cpu = compute_drw_class_weights(
+            train_counts_t,
+            method=str(args.class_weight_method),
+            normalize=str(args.class_weight_normalize),
+            clip_min=float(args.class_weight_clip_min),
+            clip_max=float(args.class_weight_clip_max),
+            eps=float(args.class_weight_eps),
+        )
+        drw_class_weights = drw_weights_cpu.to(device)
+        seen_mask = train_counts_t > 0
+        seen_mean_after_clip = float(drw_weights_cpu[seen_mask].mean().item())
+        LOGGER.info(
+            "DRW configured | start_epoch=%d lr_drop=%.4f method=%s normalize=%s "
+            "class_w[min/mean/max]=%.4f/%.4f/%.4f seen_mean_after_clip=%.4f (may drift from 1.0 after clipping)",
+            int(drw_start_epoch),
+            float(args.drw_lr_drop),
+            str(args.class_weight_method),
+            str(args.class_weight_normalize),
+            float(drw_weights_cpu.min().item()),
+            float(drw_weights_cpu.mean().item()),
+            float(drw_weights_cpu.max().item()),
+            seen_mean_after_clip,
+        )
+        class_weights = None
+    elif args.use_class_weights:
         class_weights = class_weight_info.weights
         LOGGER.info(
             "Using class-weighted loss | method=%s normalize=%s beta=%.6f min=%.4f mean=%.4f max=%.4f seen=%d unseen=%d sat_min_seen=%.2f sat_max_seen=%.2f",
@@ -338,18 +447,26 @@ def main() -> None:
 
     loss_config = {
         "use_class_weights": bool(args.use_class_weights),
+        "enable_drw": bool(args.enable_drw),
+        "drw_start_epoch": int(drw_start_epoch),
+        "drw_lr_drop": float(args.drw_lr_drop),
         "class_weight_method": str(args.class_weight_method),
         "class_weight_normalize": str(args.class_weight_normalize),
         "class_weight_beta": float(args.class_weight_beta),
         "class_weight_clip_min": float(args.class_weight_clip_min),
         "class_weight_clip_max": float(args.class_weight_clip_max),
-        "class_weight_eps": float(cfg.train.class_weight_eps),
+        "class_weight_eps": float(args.class_weight_eps),
         "label_smoothing": float(args.label_smoothing),
         "logit_adjust_tau": float(args.logit_adjust_tau),
         "logit_adjust_eps": float(cfg.train.logit_adjust_eps),
         "num_classes": int(cfg.model.num_classes),
         "class_counts": [int(v) for v in class_counts.tolist()],
     }
+    if drw_class_weights is not None:
+        cw_cpu = drw_class_weights.detach().cpu()
+        loss_config["drw_class_weight_min"] = float(cw_cpu.min().item())
+        loss_config["drw_class_weight_mean"] = float(cw_cpu.mean().item())
+        loss_config["drw_class_weight_max"] = float(cw_cpu.max().item())
     LOGGER.info("Loss config: %s", json.dumps(loss_config, sort_keys=True))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -379,6 +496,10 @@ def main() -> None:
         min_delta=0.0,
         amp_enabled=True,
         train_class_counts=class_counts,
+        enable_drw=bool(args.enable_drw),
+        drw_start_epoch=int(drw_start_epoch),
+        drw_lr_drop=float(args.drw_lr_drop),
+        drw_class_weights=drw_class_weights,
     )
 
     save_json({"history": fit_result["history"], "best_epoch": fit_result["best_epoch"], "best_metrics": fit_result["best_metrics"]}, Path(args.output_dir) / "training_history.json")

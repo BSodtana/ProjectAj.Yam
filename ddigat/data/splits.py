@@ -17,6 +17,17 @@ from ddigat.utils.seed import seed_worker
 LOGGER = get_logger(__name__)
 
 
+def _build_dummy_graph() -> Data:
+    return Data(
+        x=torch.zeros((1, 1), dtype=torch.float32),
+        edge_index=torch.empty((2, 0), dtype=torch.long),
+        edge_attr=torch.empty((0, 0), dtype=torch.float32),
+    )
+
+
+DUMMY_GRAPH = _build_dummy_graph()
+
+
 @dataclass
 class PairSample:
     graph_a: Data
@@ -33,7 +44,7 @@ class DDIPairDataset(Dataset):
     def __init__(
         self,
         df: pd.DataFrame,
-        graph_cache: GraphCache,
+        graph_cache: Optional[GraphCache],
         feature_cache: Optional[DrugFeatureCache] = None,
         limit: Optional[int] = None,
         split_name: str = "train",
@@ -52,10 +63,14 @@ class DDIPairDataset(Dataset):
         row = self.df.iloc[idx]
         smiles_a = str(row["drug_a_smiles"])
         smiles_b = str(row["drug_b_smiles"])
-        a = self.graph_cache.get_or_create(smiles_a)
-        b = self.graph_cache.get_or_create(smiles_b)
-        if a is None or b is None:
-            return None
+        if self.graph_cache is None:
+            a = DUMMY_GRAPH.clone()
+            b = DUMMY_GRAPH.clone()
+        else:
+            a = self.graph_cache.get_or_create(smiles_a)
+            b = self.graph_cache.get_or_create(smiles_b)
+            if a is None or b is None:
+                return None
         if self.feature_cache is not None:
             feat_a_np = self.feature_cache.get_or_create(smiles_a)
             feat_b_np = self.feature_cache.get_or_create(smiles_b)

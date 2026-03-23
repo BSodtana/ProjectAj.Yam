@@ -50,6 +50,9 @@ class TrainConfig:
     class_weight_clip_min: float = 0.25
     class_weight_clip_max: float = 4.0
     class_weight_eps: float = 1e-12
+    enable_drw: bool = False
+    drw_start_epoch: int | None = None
+    drw_lr_drop: float = 0.2
     class_counts: list[int] | None = None
     label_smoothing: float = 0.0
     logit_adjust_tau: float = 0.0

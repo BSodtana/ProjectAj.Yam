@@ -17,6 +17,7 @@ EXPECTED_COLS = ["drug_a_smiles", "drug_b_smiles", "y"]
 SPLIT_IMPL_VERSION_V2 = 2
 SPLIT_IMPL_VERSION_V3 = 3
 PAIR_KEY_SEP = "||"
+COLD_SELECTION_OBJECTIVES = {"selected_fold", "global_min", "first_pass"}
 
 
 def _pick_column(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
@@ -426,6 +427,32 @@ def _mean_std(values: list[int]) -> dict[str, float]:
     return {"mean": float(arr.mean()), "std": float(arr.std(ddof=0))}
 
 
+def _global_assignment_score(fold_stats: list[dict[str, object]]) -> tuple[int, int, int]:
+    return (
+        int(min(int(s["test_rows"]) for s in fold_stats)),
+        int(min(int(s["test_labels_present"]) for s in fold_stats)),
+        int(sum(int(s["test_rows"]) for s in fold_stats)),
+    )
+
+
+def _selection_score_for_fold(
+    fold_stats: list[dict[str, object]],
+    fold_idx: int,
+    objective: str,
+) -> tuple[int, int, int, int, int]:
+    selected = fold_stats[int(fold_idx)]
+    selected_labels = int(selected["test_labels_present"])
+    selected_rows = int(selected["test_rows"])
+    min_labels = int(min(int(s["test_labels_present"]) for s in fold_stats))
+    min_rows = int(min(int(s["test_rows"]) for s in fold_stats))
+    sum_rows = int(sum(int(s["test_rows"]) for s in fold_stats))
+    if objective == "selected_fold":
+        return (selected_labels, selected_rows, min_labels, min_rows, sum_rows)
+    if objective == "global_min":
+        return (min_labels, min_rows, sum_rows, selected_labels, selected_rows)
+    raise ValueError(f"Unsupported cold_selection_objective={objective}.")
+
+
 def _evaluate_assignment_s1(
     pair_df: pd.DataFrame,
     drug_to_fold: dict[str, int],
@@ -503,6 +530,7 @@ def _make_cold_drug_split_v3(
     max_resamples: int,
     dedupe_policy: str,
     num_classes: int,
+    selection_objective: str = "selected_fold",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     if int(k) < 3:
         raise ValueError("cold_k must be >= 3 for S1 fold construction (train/valid/test).")
@@ -514,6 +542,12 @@ def _make_cold_drug_split_v3(
         raise NotImplementedError("cold_protocol='s2' is not implemented yet. Use cold_protocol='s1'.")
     if protocol.lower().strip() != "s1":
         raise ValueError(f"Unsupported cold_protocol={protocol}. Expected 's1' or 's2'.")
+    selection_objective = str(selection_objective).lower().strip()
+    if selection_objective not in COLD_SELECTION_OBJECTIVES:
+        raise ValueError(
+            "Unsupported cold_selection_objective="
+            f"{selection_objective}. Expected one of: {sorted(COLD_SELECTION_OBJECTIVES)}"
+        )
 
     rows_df, pair_df, preprocess_stats = _prepare_pair_groups_for_cold_drug(
         full_df=full_df,
@@ -528,7 +562,9 @@ def _make_cold_drug_split_v3(
         )
 
     accepted: Optional[dict[str, Any]] = None
+    accepted_selection_score: Optional[tuple[int, int, int, int, int]] = None
     best_attempt: Optional[dict[str, Any]] = None
+    best_global_score: Optional[tuple[int, int, int]] = None
     for attempt in range(int(max_resamples)):
         drug_to_fold, folds, fold_weight_totals, fold_drug_counts = _assign_drugs_to_folds_degree_aware(
             drug_weights=drug_weights,
@@ -567,20 +603,22 @@ def _make_cold_drug_split_v3(
             "sum_test_rows": int(sum(int(s["test_rows"]) for s in fold_stats)),
             "all_guardrails_passed": bool(all(fold_pass)),
         }
-        if best_attempt is None:
+        cand_global_score = _global_assignment_score(fold_stats)
+        if best_attempt is None or best_global_score is None or cand_global_score > best_global_score:
             best_attempt = candidate
-        else:
-            best_score = (
-                int(best_attempt["min_test_rows"]),
-                int(best_attempt["min_test_labels"]),
-                int(best_attempt["sum_test_rows"]),
-            )
-            cand_score = (candidate["min_test_rows"], candidate["min_test_labels"], candidate["sum_test_rows"])
-            if cand_score > best_score:
-                best_attempt = candidate
+            best_global_score = cand_global_score
         if candidate["all_guardrails_passed"]:
-            accepted = candidate
-            break
+            if selection_objective == "first_pass":
+                accepted = candidate
+                break
+            selection_score = _selection_score_for_fold(
+                fold_stats=fold_stats,
+                fold_idx=int(fold_idx),
+                objective=selection_objective,
+            )
+            if accepted is None or accepted_selection_score is None or selection_score > accepted_selection_score:
+                accepted = candidate
+                accepted_selection_score = selection_score
 
     if accepted is None:
         if best_attempt is None:
@@ -616,6 +654,7 @@ def _make_cold_drug_split_v3(
         "cold_fold": int(fold_idx),
         "cold_protocol": str(protocol),
         "cold_dedupe_policy": str(dedupe_policy),
+        "cold_selection_objective": str(selection_objective),
         "guardrails": {
             "min_test_pairs": int(min_test_pairs),
             "min_test_labels": int(min_test_labels),
@@ -627,10 +666,13 @@ def _make_cold_drug_split_v3(
             "attempts_tried": int(accepted["attempt"]) + 1,
             "fold_weight_totals": [int(v) for v in accepted["fold_weight_totals"]],
             "fold_drug_counts": [int(v) for v in accepted["fold_drug_counts"]],
+            "selection_objective": str(selection_objective),
         },
         "folds": fold_stats,
         "summary": summary,
     }
+    if accepted_selection_score is not None:
+        report["assignment"]["selection_score"] = [int(v) for v in accepted_selection_score]
     return train_df, valid_df, test_df, report
 
 
@@ -784,6 +826,7 @@ def load_tdc_drugbank_ddi(
     cold_min_test_labels: int = 45,
     cold_max_resamples: int = 200,
     cold_dedupe_policy: str = "keep_all",
+    cold_selection_objective: str = "selected_fold",
     cold_write_legacy_flat_splits: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Load TDC DrugBank DDI splits and normalize to standard columns.
@@ -799,6 +842,7 @@ def load_tdc_drugbank_ddi(
 
     cold_protocol = str(cold_protocol).lower().strip()
     cold_dedupe_policy = str(cold_dedupe_policy).lower().strip()
+    cold_selection_objective = str(cold_selection_objective).lower().strip()
     splits_root = ensure_dir(Path(output_dir) / "splits")
 
     if strategy == "cold_drug":
@@ -807,6 +851,11 @@ def load_tdc_drugbank_ddi(
         if cold_dedupe_policy not in {"keep_all", "keep_first"}:
             raise ValueError(
                 f"Unsupported cold_dedupe_policy={cold_dedupe_policy}. Expected one of: keep_all, keep_first"
+            )
+        if cold_selection_objective not in COLD_SELECTION_OBJECTIVES:
+            raise ValueError(
+                "Unsupported cold_selection_objective="
+                f"{cold_selection_objective}. Expected one of: {sorted(COLD_SELECTION_OBJECTIVES)}"
             )
         if int(cold_k) < 3:
             raise ValueError(f"cold_k must be >= 3, got {cold_k}")
@@ -827,6 +876,7 @@ def load_tdc_drugbank_ddi(
             "cold_min_test_labels": int(cold_min_test_labels),
             "cold_max_resamples": int(cold_max_resamples),
             "cold_dedupe_policy": cold_dedupe_policy,
+            "cold_selection_objective": cold_selection_objective,
         }
         saved = _load_saved_splits(fold_dir)
         meta = _load_split_meta(split_root)
@@ -914,6 +964,7 @@ def load_tdc_drugbank_ddi(
             max_resamples=int(cold_max_resamples),
             dedupe_policy=cold_dedupe_policy,
             num_classes=len(label_map),
+            selection_objective=cold_selection_objective,
         )
         train_df, valid_df, test_df, label_map = _normalize_label_indexing(
             train_df, valid_df, test_df, label_map, split_dir=None
@@ -936,6 +987,7 @@ def load_tdc_drugbank_ddi(
                 "cold_min_test_labels": int(cold_min_test_labels),
                 "cold_max_resamples": int(cold_max_resamples),
                 "cold_dedupe_policy": cold_dedupe_policy,
+                "cold_selection_objective": cold_selection_objective,
             },
         )
         save_json(report, split_root / "cold_drug_kfold_report.json")
@@ -957,6 +1009,7 @@ def load_tdc_drugbank_ddi(
                     "cold_min_test_labels": int(cold_min_test_labels),
                     "cold_max_resamples": int(cold_max_resamples),
                     "cold_dedupe_policy": cold_dedupe_policy,
+                    "cold_selection_objective": cold_selection_objective,
                     "legacy_flat_copy": True,
                 },
             )

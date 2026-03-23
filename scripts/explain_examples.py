@@ -60,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cold_min_test_labels", type=int, default=45)
     p.add_argument("--cold_max_resamples", type=int, default=200)
     p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument(
+        "--cold_selection_objective",
+        type=str,
+        default="selected_fold",
+        choices=["selected_fold", "global_min", "first_pass"],
+    )
     p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     p.add_argument("--bootstrap_repeats", type=int, default=2000)
     p.add_argument("--bootstrap_ci", type=float, default=95.0)
@@ -290,6 +296,7 @@ def main() -> None:
         cold_min_test_labels=args.cold_min_test_labels,
         cold_max_resamples=args.cold_max_resamples,
         cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_selection_objective=args.cold_selection_objective,
         cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:

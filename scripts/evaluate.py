@@ -67,8 +67,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cold_min_test_labels", type=int, default=45)
     p.add_argument("--cold_max_resamples", type=int, default=200)
     p.add_argument("--cold_dedupe_policy", type=str, default="keep_all", choices=["keep_all", "keep_first"])
+    p.add_argument(
+        "--cold_selection_objective",
+        type=str,
+        default="selected_fold",
+        choices=["selected_fold", "global_min", "first_pass"],
+    )
     p.add_argument("--cold_write_legacy_flat_splits", action="store_true")
     p.add_argument("--logit_adjust_tau", type=float, default=None, help="Override checkpoint logit-adjust tau for evaluation.")
+    p.add_argument(
+        "--split_cache_dir",
+        type=str,
+        default=None,
+        help="Optional shared directory used for persisted split cache; defaults to output_dir.",
+    )
     return p.parse_args()
 
 
@@ -159,6 +171,7 @@ def main() -> None:
     args = parse_args()
     seed_everything(args.seed)
     device = resolve_device(args.device)
+    split_cache_dir = args.split_cache_dir or args.output_dir
 
     payload = torch_load(args.checkpoint, map_location=device)
     cfg = payload.get("config", {}) or {}
@@ -168,7 +181,7 @@ def main() -> None:
 
     train_df, valid_df, test_df, _ = load_tdc_drugbank_ddi(
         args.data_dir,
-        output_dir=args.output_dir,
+        output_dir=split_cache_dir,
         split_strategy=args.split_strategy,
         split_seed=args.split_seed,
         cold_k=args.cold_k,
@@ -178,6 +191,7 @@ def main() -> None:
         cold_min_test_labels=args.cold_min_test_labels,
         cold_max_resamples=args.cold_max_resamples,
         cold_dedupe_policy=args.cold_dedupe_policy,
+        cold_selection_objective=args.cold_selection_objective,
         cold_write_legacy_flat_splits=bool(args.cold_write_legacy_flat_splits),
     )
     if args.limit is not None:
@@ -252,7 +266,8 @@ def main() -> None:
         int(model.num_classes),
     )
 
-    cache = GraphCache(output_dir=args.output_dir)
+    is_feature_only = str(model.encoder_type).lower().strip() == "mlp"
+    cache = None if is_feature_only else GraphCache(output_dir=args.output_dir)
     feature_cache: DrugFeatureCache | None = None
     if bool(
         feature_cfg["use_ecfp_features"] or feature_cfg["use_physchem_features"] or feature_cfg["use_maccs_features"]

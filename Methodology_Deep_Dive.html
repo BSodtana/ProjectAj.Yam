@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thesis Methodology Deep Dive — From Splitting to Evaluation</title>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js"></script>
+<style>
+  :root {
+    --bg: #fafafa;
+    --card: #ffffff;
+    --accent: #1a56db;
+    --accent-light: #e8f0fe;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --code-bg: #f3f4f6;
+    --green: #059669;
+    --orange: #d97706;
+    --red: #dc2626;
+    --purple: #7c3aed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    font-size: 16px;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #1a56db 0%, #7c3aed 100%);
+    color: white;
+    padding: 3rem 2rem;
+    border-radius: 16px;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .hero h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .hero p { opacity: 0.9; font-size: 1rem; }
+
+  /* Sections */
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .section h2 {
+    font-size: 1.4rem;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent-light);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .section h3 {
+    font-size: 1.15rem;
+    color: var(--text);
+    margin: 1.5rem 0 0.75rem;
+    font-weight: 600;
+  }
+  .section h4 {
+    font-size: 1rem;
+    color: var(--muted);
+    margin: 1.2rem 0 0.5rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  p { margin-bottom: 0.75rem; }
+
+  /* Step number badges */
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* Math blocks */
+  .math-block {
+    background: var(--accent-light);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    border-radius: 0 8px 8px 0;
+    overflow-x: auto;
+  }
+
+  /* Callout boxes */
+  .callout {
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .callout-why {
+    background: #fef3c7;
+    border-left: 4px solid var(--orange);
+  }
+  .callout-key {
+    background: #dcfce7;
+    border-left: 4px solid var(--green);
+  }
+  .callout-warn {
+    background: #fee2e2;
+    border-left: 4px solid var(--red);
+  }
+  .callout-info {
+    background: var(--accent-light);
+    border-left: 4px solid var(--accent);
+  }
+  .callout strong { display: block; margin-bottom: 0.25rem; }
+
+  /* Code */
+  code {
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'Fira Code', 'Consolas', monospace;
+  }
+  pre {
+    background: #1f2937;
+    color: #e5e7eb;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--accent-light);
+    font-weight: 600;
+    color: var(--accent);
+  }
+  tr:hover td { background: #f9fafb; }
+
+  /* Flow diagrams */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .flow-box {
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--muted); font-size: 1.2rem; }
+
+  /* Feature list grid */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1rem;
+    margin: 0.75rem 0;
+    font-size: 0.95rem;
+  }
+  .feature-grid .label {
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  /* TOC */
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .toc h2 { margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--muted); border: none; padding: 0; }
+  .toc ol { padding-left: 1.25rem; }
+  .toc li { margin-bottom: 0.3rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Numbered steps inside sections */
+  .steps { counter-reset: step-counter; }
+  .step-item {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    align-items: flex-start;
+  }
+  .step-item::before {
+    counter-increment: step-counter;
+    content: counter(step-counter);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px; height: 26px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+
+  @media (max-width: 640px) {
+    .container { padding: 1rem; }
+    .hero { padding: 2rem 1rem; }
+    .section { padding: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HERO -->
+<div class="hero">
+  <h1>Thesis Methodology Deep Dive</h1>
+  <p>Every piece from data splitting to evaluation metrics — with the math behind it</p>
+  <p style="opacity:0.7; font-size:0.85rem; margin-top:0.5rem;">Cold-Drug DDI Prediction &middot; Buddharak Sodtana &middot; March 2026</p>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">Pipeline Overview — The Big Picture</a></li>
+    <li><a href="#s2">Stage 1: Data Loading &amp; Conflict Removal</a></li>
+    <li><a href="#s3">Stage 2: Cold-Drug Splitting (The Key Innovation)</a></li>
+    <li><a href="#s4">Stage 3: Molecular Graph Construction</a></li>
+    <li><a href="#s5">Stage 4: ECFP Fingerprint Generation</a></li>
+    <li><a href="#s6">Stage 5: The GNN Encoder (GAT)</a></li>
+    <li><a href="#s7">Stage 6: Siamese Pair Model &amp; Pairwise Features</a></li>
+    <li><a href="#s8">Stage 7: Logit Adjustment — Fighting Class Imbalance</a></li>
+    <li><a href="#s9">Stage 8: Deferred Re-Weighting (DRW)</a></li>
+    <li><a href="#s10">Stage 9: Training Loop &amp; Optimization</a></li>
+    <li><a href="#s11">Stage 10: Evaluation Metrics — The Full Suite</a></li>
+    <li><a href="#s12">Putting It All Together — End-to-End Flow</a></li>
+  </ol>
+</div>
+
+<!-- ======================== SECTION 1 ======================== -->
+<div class="section" id="s1">
+  <h2><span class="step-num">1</span> Pipeline Overview — The Big Picture</h2>
+
+  <p>Before diving into each piece, here is the full flow of your system at a glance:</p>
+
+  <div class="flow">
+    <span class="flow-box">DrugBank via TDC</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Clean &amp; Remove Conflicts</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Cold-Drug Split (5 folds)</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Build Graphs + ECFP</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Siamese GAT Model</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">LA + DRW Loss</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Evaluate</span>
+  </div>
+
+  <p>Each drug pair $(d_a, d_b)$ goes through a shared encoder that produces one embedding per drug. Those embeddings are combined into a pairwise feature vector and classified into one of 86 DDI types. The entire system is trained end-to-end with PyTorch.</p>
+
+  <div class="callout callout-key">
+    <strong>Why "Cold-Drug"?</strong>
+    In a real clinical scenario, a new drug enters the market and we need to predict its interactions with existing drugs — the model has never seen this drug before. Cold-drug evaluation simulates exactly this: test drugs are completely absent from training data.
+  </div>
+</div>
+
+<!-- ======================== SECTION 2 ======================== -->
+<div class="section" id="s2">
+  <h2><span class="step-num">2</span> Stage 1: Data Loading &amp; Conflict Removal</h2>
+
+  <h3>Where the data comes from</h3>
+  <p>The dataset is the <strong>DrugBank DDI benchmark</strong> loaded through the <strong>Therapeutics Data Commons (TDC)</strong> Python library. Each row has three columns:</p>
+
+  <table>
+    <tr><th>Column</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>drug_a_smiles</code></td><td>SMILES string of drug A</td><td><code>CC(=O)Oc1ccccc1C(=O)O</code> (Aspirin)</td></tr>
+    <tr><td><code>drug_b_smiles</code></td><td>SMILES string of drug B</td><td><code>CC(C)CC1=CC=C(C=C1)C(C)C(=O)O</code> (Ibuprofen)</td></tr>
+    <tr><td><code>y</code></td><td>Interaction type label (0–85)</td><td><code>42</code></td></tr>
+  </table>
+
+  <h3>Pair canonicalization</h3>
+  <p>Drug pairs are <em>unordered</em> — the interaction between (Aspirin, Ibuprofen) is the same as (Ibuprofen, Aspirin). The code enforces this by sorting the two SMILES strings alphabetically:</p>
+  <pre><code>if smiles_a &lt;= smiles_b:
+    pair = (smiles_a, smiles_b)
+else:
+    pair = (smiles_b, smiles_a)</code></pre>
+  <p>This creates a unique <code>pair_key</code> for each drug combination, like <code>"CC(=O)...||CC(C)..."</code>.</p>
+
+  <h3>Conflict detection and removal</h3>
+  <p>Some pairs appear with <em>different</em> labels in the dataset — the same drug pair is assigned to more than one interaction type. These are <strong>conflicting pairs</strong>, and keeping them would introduce label noise.</p>
+
+  <p>The code groups rows by their <code>pair_key</code>, counts how many distinct labels (<code>label_nunique</code>) each group has, and removes any group where <code>label_nunique &gt; 1</code>:</p>
+
+  <table>
+    <tr><th>Statistic</th><th>Count</th></tr>
+    <tr><td>Raw input rows</td><td>191,808</td></tr>
+    <tr><td>Unique pair groups</td><td>191,402</td></tr>
+    <tr><td>Conflicting pair groups (removed)</td><td>406</td></tr>
+    <tr><td>Conflicting rows removed</td><td>812</td></tr>
+    <tr><td>Clean rows retained</td><td><strong>190,996</strong></td></tr>
+  </table>
+
+  <div class="callout callout-why">
+    <strong>Why remove conflicts?</strong>
+    If the same drug pair has label 12 in one row and label 55 in another row, the model receives contradictory supervision. Removing these 406 ambiguous groups (only 0.2% of data) eliminates this noise at minimal cost.
+  </div>
+</div>
+
+<!-- ======================== SECTION 3 ======================== -->
+<div class="section" id="s3">
+  <h2><span class="step-num">3</span> Stage 2: Cold-Drug Splitting (The Key Innovation)</h2>
+
+  <p>This is the most important methodological choice in the entire thesis. Unlike random splitting (where the same drug can appear in both train and test), <strong>cold-drug splitting ensures that every test drug is completely unseen during training</strong>.</p>
+
+  <h3>Step-by-step: How the split works</h3>
+
+  <h4>Step A — Compute drug "degree" weights</h4>
+  <p>For every unique drug in the dataset, count how many pair groups it participates in. This is its <strong>degree weight</strong>:</p>
+  <div class="math-block">
+    $$\text{weight}(d) = |\{(d, d') : (d, d') \in \text{pairs}\}| + |\{(d', d) : (d', d) \in \text{pairs}\}|$$
+  </div>
+  <p>A drug that interacts with many other drugs has a high weight. For example, if Aspirin appears in 500 pairs, its weight is 500.</p>
+
+  <h4>Step B — Degree-aware fold assignment</h4>
+  <p>All unique drugs are sorted by weight in <strong>descending order</strong> (highest-degree drugs first). Then, using a greedy algorithm, each drug is assigned to the fold that currently has the <em>smallest total weight</em>:</p>
+
+  <pre><code># Pseudocode for drug-to-fold assignment
+drugs = sort_by_weight_descending(all_drugs)
+fold_weights = [0, 0, 0, 0, 0]  # k=5 folds
+
+for drug in drugs:
+    # Assign to the lightest fold (ties broken randomly)
+    best_fold = argmin(fold_weights)
+    assign(drug, best_fold)
+    fold_weights[best_fold] += weight(drug)</code></pre>
+
+  <div class="callout callout-why">
+    <strong>Why degree-aware balancing?</strong>
+    If high-degree drugs all land in one fold, that fold's test set would be disproportionately large. Greedy balancing ensures each fold has roughly equal total interaction count, producing balanced train/valid/test sizes.
+  </div>
+
+  <h4>Step C — Protocol S1: Building train/valid/test from folds</h4>
+  <p>With $k=5$ folds numbered 0 through 4, for a given test fold $f$:</p>
+
+  <table>
+    <tr><th>Role</th><th>Which fold(s)?</th><th>Rule for pairs</th></tr>
+    <tr><td><strong>Test</strong></td><td>Fold $f$</td><td>At least one drug from fold $f$, the other drug from training folds</td></tr>
+    <tr><td><strong>Validation</strong></td><td>Fold $(f+1) \bmod 5$</td><td>At least one drug from the valid fold, the other from training folds</td></tr>
+    <tr><td><strong>Training</strong></td><td>Remaining 3 folds</td><td><strong>Both</strong> drugs must be from training folds only</td></tr>
+  </table>
+
+  <p>The mask logic in code works like this:</p>
+  <div class="math-block">
+    $$\text{train\_mask}(a,b) = (\text{fold}(a) \notin \{f, f{+}1\}) \;\wedge\; (\text{fold}(b) \notin \{f, f{+}1\})$$
+    $$\text{test\_mask}(a,b) = (\text{fold}(a) = f \;\wedge\; \text{fold}(b) \in \text{train\_folds}) \;\vee\; (\text{fold}(b) = f \;\wedge\; \text{fold}(a) \in \text{train\_folds})$$
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>Critical constraint: No leakage!</strong>
+    Training pairs require <em>both</em> drugs to be from training folds. Test pairs require exactly <em>one</em> drug from the test fold and the <em>other</em> from training folds. This guarantees zero drug overlap between train and test. The code includes explicit assertions checking that pair-key sets are fully disjoint between all splits.
+  </div>
+
+  <h4>Step D — Guardrails and resampling</h4>
+  <p>Not every random seed produces a good split. The code enforces minimum quality standards:</p>
+  <table>
+    <tr><th>Guardrail</th><th>Threshold</th></tr>
+    <tr><td>Minimum test pairs per fold</td><td>5,000</td></tr>
+    <tr><td>Minimum test label types per fold</td><td>45 (out of 86)</td></tr>
+    <tr><td>Train/Valid/Test all non-empty</td><td>Required</td></tr>
+  </table>
+  <p>If any fold fails these guardrails, the code tries a new randomized assignment (up to 200 attempts) using a different seed derived from the base seed: <code>seed + 104,729 × attempt</code>. Among all passing assignments, the one maximizing test label coverage for the selected fold is chosen.</p>
+
+  <h4>Step E — Resulting split statistics</h4>
+  <table>
+    <tr><th>Statistic</th><th>Mean across 5 folds</th><th>Strongest fold (f4)</th></tr>
+    <tr><td>Training rows</td><td>68,619</td><td>68,562</td></tr>
+    <tr><td>Validation rows</td><td>45,978</td><td>46,038</td></tr>
+    <tr><td>Test rows</td><td>45,978</td><td>46,033</td></tr>
+    <tr><td>Test labels present</td><td>82 / 86</td><td>85 / 86</td></tr>
+    <tr><td>Drugs per fold</td><td>~341</td><td>342</td></tr>
+  </table>
+
+  <div class="callout callout-info">
+    <strong>For your defense:</strong> If asked "why not just random split?" — answer that random splits allow the model to memorize drug identity rather than learning chemical structure. With cold-drug splits, the model must truly generalize to unseen molecules, which is what matters for real-world drug safety.
+  </div>
+</div>
+
+<!-- ======================== SECTION 4 ======================== -->
+<div class="section" id="s4">
+  <h2><span class="step-num">4</span> Stage 3: Molecular Graph Construction</h2>
+
+  <p>Each drug's SMILES string is converted into a <strong>molecular graph</strong> using RDKit. Think of it as turning a text description of a molecule into a network where atoms are nodes and bonds are edges.</p>
+
+  <h3>Node features (7 dimensions per atom)</h3>
+  <p>Every atom in the molecule becomes a node with a 7-dimensional feature vector:</p>
+
+  <table>
+    <tr><th>#</th><th>Feature</th><th>What it represents</th><th>Example</th></tr>
+    <tr><td>1</td><td>Atomic number</td><td>Element type (C=6, N=7, O=8...)</td><td>6 for carbon</td></tr>
+    <tr><td>2</td><td>Degree</td><td>Number of bonded neighbors</td><td>3 for a branching carbon</td></tr>
+    <tr><td>3</td><td>Aromaticity</td><td>Is the atom in an aromatic ring?</td><td>1 for benzene carbon</td></tr>
+    <tr><td>4</td><td>Formal charge</td><td>Net electric charge on the atom</td><td>-1 for a deprotonated oxygen</td></tr>
+    <tr><td>5</td><td>Hybridization</td><td>Orbital hybridization type (sp, sp2, sp3...)</td><td>3 for sp3</td></tr>
+    <tr><td>6</td><td>Ring membership</td><td>Is the atom in any ring?</td><td>1 for cyclohexane carbon</td></tr>
+    <tr><td>7</td><td>Total H count</td><td>Total hydrogens attached</td><td>2 for -CH2-</td></tr>
+  </table>
+
+  <h3>Edge features (5 dimensions per bond)</h3>
+  <p>Every bond in the molecule becomes an edge with a 5-dimensional feature vector:</p>
+
+  <table>
+    <tr><th>#</th><th>Feature</th><th>What it represents</th></tr>
+    <tr><td>1</td><td>Bond type</td><td>Single (1), Double (2), Triple (3), Aromatic (1.5)</td></tr>
+    <tr><td>2</td><td>Conjugation</td><td>Is the bond part of a conjugated system?</td></tr>
+    <tr><td>3</td><td>Aromaticity</td><td>Is the bond in an aromatic ring?</td></tr>
+    <tr><td>4</td><td>Ring membership</td><td>Is the bond part of a ring?</td></tr>
+    <tr><td>5</td><td>Stereo code</td><td>Bond stereochemistry (E/Z configuration)</td></tr>
+  </table>
+
+  <h3>Output format: PyTorch Geometric Data object</h3>
+  <p>The final graph is stored as a <code>torch_geometric.data.Data</code> object:</p>
+  <pre><code>Data(
+  x       = [num_atoms, 7],       # Node feature matrix
+  edge_index = [2, num_bonds×2],  # Edge connectivity (both directions)
+  edge_attr  = [num_bonds×2, 5]   # Edge feature matrix
+)</code></pre>
+  <p>Edges are stored <em>bidirectionally</em> — if atom 0 bonds to atom 1, we store both (0→1) and (1→0). This is needed for message passing in GNNs.</p>
+
+  <h3>Caching</h3>
+  <p>Each drug's graph is computed once, then cached to disk keyed by a SHA-256 hash of its canonical SMILES. This means re-running experiments doesn't recompute graphs. The <code>GraphCache</code> class handles hit/miss tracking, so you know exactly how many graphs were loaded vs. freshly computed.</p>
+
+  <div class="callout callout-why">
+    <strong>Why graphs instead of just SMILES strings?</strong>
+    SMILES is a 1D text representation — it encodes the same molecule but loses the 2D/3D structural relationships. Graph representations preserve the actual connectivity pattern, allowing the GNN to learn how neighboring atoms influence each other, which is essential for predicting how two drugs interact.
+  </div>
+</div>
+
+<!-- ======================== SECTION 5 ======================== -->
+<div class="section" id="s5">
+  <h2><span class="step-num">5</span> Stage 4: ECFP Fingerprint Generation</h2>
+
+  <h3>What is ECFP?</h3>
+  <p><strong>Extended-Connectivity Fingerprints (ECFP)</strong> are a classical cheminformatics representation. Think of them as a "checklist" of chemical substructures present in a molecule.</p>
+
+  <h3>How ECFP works — step by step</h3>
+
+  <div class="steps">
+    <div class="step-item">
+      <div>
+        <strong>Initialize:</strong> Assign each atom an identifier based on its local properties (element type, number of neighbors, charge, etc.).
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Iterate for <em>r</em> rounds (radius=2):</strong> In each round, each atom collects the identifiers of its neighbors and combines them with its own identifier using a hash function. This creates a new identifier that encodes a larger neighborhood. After round 1, each identifier captures the atom + its immediate neighbors. After round 2, it captures the atom + 2-hop neighborhood.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Fold into a bit vector:</strong> All the identifiers generated across all atoms and all rounds are mapped (via hashing) into a fixed-length binary vector of 2048 bits. If an identifier maps to position 734, bit 734 is set to 1.
+      </div>
+    </div>
+  </div>
+
+  <div class="math-block">
+    $$\text{ECFP4}(d) \in \{0, 1\}^{2048}$$
+  </div>
+
+  <p>The "4" in ECFP4 means diameter=4 (radius=2), meaning each bit encodes a substructure of up to 2 bonds radius around each atom.</p>
+
+  <h3>ECFP code (actual implementation)</h3>
+  <pre><code>def smiles_to_ecfp(smiles, n_bits=2048, radius=2):
+    mol = Chem.MolFromSmiles(smiles)
+    fp = AllChem.GetMorganFingerprintAsBitVect(
+        mol, radius, nBits=n_bits, useChirality=False
+    )
+    arr = np.zeros(n_bits, dtype=np.uint8)
+    DataStructs.ConvertToNumpyArray(fp, arr)
+    return arr.astype(np.float32)</code></pre>
+
+  <h3>ECFP projection in the model</h3>
+  <p>The raw 2048-bit vector is too high-dimensional to concatenate directly with the 128-dim graph embedding. So it goes through a <strong>projection pathway</strong>:</p>
+
+  <div class="math-block">
+    $$\mathbf{p} = \text{Dropout}_{0.2}\Big(\text{ReLU}\big(\text{LayerNorm}(\mathbf{W}_{\text{proj}} \cdot \text{ECFP} + \mathbf{b}_{\text{proj}})\big)\Big)$$
+  </div>
+
+  <p>where $\mathbf{W}_{\text{proj}} \in \mathbb{R}^{128 \times 2048}$. This compresses the 2048-bit fingerprint into a 128-dimensional dense vector.</p>
+
+  <div class="callout callout-key">
+    <strong>Why use both graph + ECFP?</strong>
+    They capture complementary information. The graph encoder learns task-specific features end-to-end (adaptive but needs data). ECFP provides stable, well-tested chemical patterns (fixed but reliable). Your ablation shows that adding ECFP to GAT improves macro PR-AUC by +6.1% — substantial.
+  </div>
+</div>
+
+<!-- ======================== SECTION 6 ======================== -->
+<div class="section" id="s6">
+  <h2><span class="step-num">6</span> Stage 5: The GNN Encoder (GAT)</h2>
+
+  <h3>What is a Graph Attention Network?</h3>
+  <p>A GAT is a type of Graph Neural Network that uses <strong>attention</strong> to learn how much each neighbor should influence a node's updated representation. Instead of treating all neighbors equally, it assigns different importance weights.</p>
+
+  <h3>GAT layer math — one layer at a time</h3>
+
+  <h4>Single attention head</h4>
+  <p>For a single attention head, the computation for node $i$ works like this:</p>
+
+  <p><strong>1. Linear transformation:</strong> Transform each node's features into a new space:</p>
+  <div class="math-block">
+    $$\mathbf{h}'_i = \mathbf{W} \cdot \mathbf{h}_i$$
+  </div>
+  <p>where $\mathbf{W}$ is a learnable weight matrix and $\mathbf{h}_i$ is the current feature vector of node $i$.</p>
+
+  <p><strong>2. Attention coefficients:</strong> Compute a raw attention score between node $i$ and each neighbor $j$:</p>
+  <div class="math-block">
+    $$e_{ij} = \text{LeakyReLU}\Big(\mathbf{a}^T [\mathbf{h}'_i \| \mathbf{h}'_j \| \mathbf{e}_{ij}^{\text{edge}}]\Big)$$
+  </div>
+  <p>where $\mathbf{a}$ is a learnable attention vector, $\|$ means concatenation, and $\mathbf{e}_{ij}^{\text{edge}}$ is the 5-dim edge feature. The <code>edge_dim=5</code> parameter in the code enables this — the GAT incorporates bond-type information into attention.</p>
+
+  <p><strong>3. Normalize with softmax:</strong> Convert raw scores to weights that sum to 1 across all neighbors of node $i$:</p>
+  <div class="math-block">
+    $$\alpha_{ij} = \frac{\exp(e_{ij})}{\sum_{k \in \mathcal{N}(i)} \exp(e_{ik})}$$
+  </div>
+  <p>This $\alpha_{ij}$ is the attention weight — it tells us how important neighbor $j$ is for updating node $i$.</p>
+
+  <p><strong>4. Weighted aggregation:</strong> Compute the new embedding for node $i$ by taking a weighted sum of all neighbor embeddings:</p>
+  <div class="math-block">
+    $$\mathbf{h}_i^{\text{new}} = \sum_{j \in \mathcal{N}(i)} \alpha_{ij} \cdot \mathbf{h}'_j$$
+  </div>
+
+  <h4>Multi-head attention (4 heads)</h4>
+  <p>Your model uses 4 attention heads. Each head performs the above computation independently with different learned parameters. For non-final layers, their outputs are <strong>concatenated</strong>:</p>
+  <div class="math-block">
+    $$\mathbf{h}_i^{\text{multi}} = \Big\|_{k=1}^{4} \mathbf{h}_i^{(k)}$$
+  </div>
+  <p>If each head outputs 64-dim vectors, concatenation gives $4 \times 64 = 256$ dimensions. For the <strong>final layer</strong>, heads are <strong>averaged</strong> instead (<code>concat=False</code>), producing a 128-dim output.</p>
+
+  <h3>Your 3-layer GAT architecture</h3>
+  <table>
+    <tr><th>Layer</th><th>Input dim</th><th>Output dim</th><th>Heads</th><th>Concat?</th><th>Activation</th></tr>
+    <tr><td>Layer 1</td><td>7 (node features)</td><td>64 per head</td><td>4</td><td>Yes → 256</td><td>ELU + Dropout(0.2)</td></tr>
+    <tr><td>Layer 2</td><td>256</td><td>64 per head</td><td>4</td><td>Yes → 256</td><td>ELU + Dropout(0.2)</td></tr>
+    <tr><td>Layer 3</td><td>256</td><td>128 (averaged)</td><td>4</td><td>No → 128</td><td>None (final)</td></tr>
+  </table>
+
+  <h3>Global mean pooling</h3>
+  <p>After 3 GAT layers, every atom has a 128-dim embedding. But we need <em>one</em> embedding for the entire molecule. <strong>Global mean pooling</strong> averages all atom embeddings:</p>
+  <div class="math-block">
+    $$\mathbf{g} = \frac{1}{|\mathcal{V}|} \sum_{i \in \mathcal{V}} \mathbf{h}_i^{(\text{final})} \quad \in \mathbb{R}^{128}$$
+  </div>
+  <p>where $\mathcal{V}$ is the set of all atoms in the molecule.</p>
+
+  <div class="callout callout-info">
+    <strong>Why ELU instead of ReLU?</strong>
+    ELU (Exponential Linear Unit) allows small negative outputs instead of hard-zeroing them like ReLU. This helps with gradient flow in GAT layers. The formula: $\text{ELU}(x) = x$ if $x > 0$, and $\alpha(e^x - 1)$ if $x \leq 0$ (with $\alpha=1$).
+  </div>
+</div>
+
+<!-- ======================== SECTION 7 ======================== -->
+<div class="section" id="s7">
+  <h2><span class="step-num">7</span> Stage 6: Siamese Pair Model &amp; Pairwise Features</h2>
+
+  <h3>Siamese architecture</h3>
+  <p>"Siamese" means the <strong>same encoder with shared weights</strong> processes both drugs. Drug A and Drug B go through the exact same GAT network:</p>
+
+  <div class="flow">
+    <span class="flow-box">Drug A graph</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Shared GAT</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">g_a (128-dim)</span>
+  </div>
+  <div class="flow">
+    <span class="flow-box">Drug B graph</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">Shared GAT</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-box">g_b (128-dim)</span>
+  </div>
+
+  <div class="callout callout-why">
+    <strong>Why shared weights?</strong>
+    Drug A and Drug B are both just drugs — there's no inherent difference in their "role." Sharing weights means the model learns a single universal drug representation function, which is more parameter-efficient and prevents overfitting.
+  </div>
+
+  <h3>Drug embedding fusion (graph + ECFP)</h3>
+  <p>After getting the graph embedding $\mathbf{g}_a$ (128-dim) and the projected ECFP $\mathbf{p}_a$ (128-dim), they are concatenated and fused:</p>
+
+  <div class="math-block">
+    $$\mathbf{h}_a = \text{Dropout}_{0.2}\Big(\text{ReLU}\big(\mathbf{W}_{\text{fuse}} [\mathbf{g}_a \| \mathbf{p}_a] + \mathbf{b}_{\text{fuse}}\big)\Big)$$
+  </div>
+  <p>where $\mathbf{W}_{\text{fuse}} \in \mathbb{R}^{128 \times 256}$. The 256-dim concatenation is projected back down to 128 dimensions. Same for drug B → $\mathbf{h}_b$.</p>
+
+  <h3>Pairwise feature construction (permutation-invariant)</h3>
+  <p>Now we have $\mathbf{h}_a, \mathbf{h}_b \in \mathbb{R}^{128}$. The pair feature must be <strong>order-invariant</strong> — swapping drug A and B should give the same prediction. The code achieves this with:</p>
+
+  <div class="math-block">
+    $$\mathbf{z}_{ab} = \Big[\min(\mathbf{h}_a, \mathbf{h}_b) \;\Big\|\; \max(\mathbf{h}_a, \mathbf{h}_b) \;\Big\|\; \max - \min \;\Big\|\; \mathbf{h}_a \odot \mathbf{h}_b\Big]$$
+  </div>
+
+  <p>Let's break down each component (all operations are <strong>element-wise</strong>):</p>
+
+  <table>
+    <tr><th>Component</th><th>Dimension</th><th>What it captures</th></tr>
+    <tr><td>$\min(\mathbf{h}_a, \mathbf{h}_b)$</td><td>128</td><td>The "smaller" drug signal per dimension — a symmetric baseline</td></tr>
+    <tr><td>$\max(\mathbf{h}_a, \mathbf{h}_b)$</td><td>128</td><td>The "larger" drug signal per dimension — a symmetric baseline</td></tr>
+    <tr><td>$\max - \min$</td><td>128</td><td>The absolute difference — how different are the drugs?</td></tr>
+    <tr><td>$\mathbf{h}_a \odot \mathbf{h}_b$</td><td>128</td><td>Element-wise product — interaction/correlation signal</td></tr>
+  </table>
+
+  <p>Total pair feature: $\mathbf{z}_{ab} \in \mathbb{R}^{512}$.</p>
+
+  <div class="callout callout-key">
+    <strong>Why min/max instead of just concatenation?</strong>
+    If you concatenate $[\mathbf{h}_a \| \mathbf{h}_b]$, swapping A and B gives $[\mathbf{h}_b \| \mathbf{h}_a]$, which is different! Using $\min$ and $\max$ ensures the output is identical regardless of input order. The element-wise product $\mathbf{h}_a \odot \mathbf{h}_b$ is also naturally symmetric.
+  </div>
+
+  <h3>Classification head</h3>
+  <p>The 512-dim pair vector is classified by a 2-layer MLP:</p>
+  <div class="math-block">
+    $$\text{logits} = \mathbf{W}_2 \cdot \text{Dropout}_{0.2}\Big(\text{ReLU}\big(\mathbf{W}_1 \cdot \mathbf{z}_{ab} + \mathbf{b}_1\big)\Big) + \mathbf{b}_2$$
+  </div>
+  <p>where $\mathbf{W}_1 \in \mathbb{R}^{256 \times 512}$ and $\mathbf{W}_2 \in \mathbb{R}^{86 \times 256}$. The output is an 86-dimensional logit vector — one value per interaction type.</p>
+</div>
+
+<!-- ======================== SECTION 8 ======================== -->
+<div class="section" id="s8">
+  <h2><span class="step-num">8</span> Stage 7: Logit Adjustment — Fighting Class Imbalance</h2>
+
+  <h3>The problem</h3>
+  <p>The 86 interaction types are <strong>heavily imbalanced</strong>. Some types have thousands of training examples, while rare types might have only a handful. Without correction, the model would learn to always predict common classes and ignore rare ones.</p>
+
+  <h3>The math behind logit adjustment</h3>
+  <p>First, compute the <strong>class prior</strong> — the probability of each class in the training set:</p>
+  <div class="math-block">
+    $$\pi_c = \frac{n_c + \epsilon}{\sum_{j=1}^{86}(n_j + \epsilon)}, \quad \epsilon = 10^{-12}$$
+  </div>
+  <p>where $n_c$ is the number of training examples in class $c$. The tiny $\epsilon$ prevents division by zero for classes with zero training count.</p>
+
+  <p>Then compute the <strong>log prior</strong>:</p>
+  <div class="math-block">
+    $$\log \pi_c = \log\left(\frac{n_c + \epsilon}{\sum_{j}(n_j + \epsilon)}\right)$$
+  </div>
+
+  <p>For a common class (high $n_c$), $\log \pi_c$ is a large negative number (close to 0). For a rare class (low $n_c$), $\log \pi_c$ is a very negative number (far from 0).</p>
+
+  <p>The <strong>adjusted logits</strong> are:</p>
+  <div class="math-block">
+    $$\tilde{s}_c = s_c + \tau \cdot \log \pi_c, \quad \tau = 0.5$$
+  </div>
+
+  <h3>Intuitive explanation</h3>
+  <p>Let's work through a concrete example. Suppose:</p>
+  <table>
+    <tr><th>Class</th><th>$n_c$</th><th>$\pi_c$</th><th>$\log \pi_c$</th><th>$\tau \cdot \log \pi_c$</th></tr>
+    <tr><td>Common (class 5)</td><td>10,000</td><td>0.15</td><td>-1.90</td><td>-0.95</td></tr>
+    <tr><td>Rare (class 72)</td><td>50</td><td>0.0007</td><td>-7.24</td><td>-3.62</td></tr>
+  </table>
+
+  <p>The adjustment <strong>subtracts more</strong> from common classes (by adding a bigger negative number) and <strong>subtracts less</strong> from rare classes. This effectively gives rare classes a relative boost in the softmax competition.</p>
+
+  <div class="callout callout-info">
+    <strong>Why $\tau = 0.5$?</strong>
+    $\tau$ controls the strength of the adjustment. $\tau=0$ means no adjustment. $\tau=1$ is the full theoretical correction from Menon et al. (2021). $\tau=0.5$ is a moderate middle ground — it helps rare classes without over-correcting so aggressively that it destabilizes training.
+  </div>
+
+  <h3>Where it's applied</h3>
+  <p>The adjustment happens in <strong>two places</strong>:</p>
+  <p>(1) Inside the <strong>loss function</strong> — the adjusted logits go into cross-entropy, so the gradient signal accounts for class imbalance during backpropagation.</p>
+  <p>(2) During <strong>prediction</strong> — <code>predict_proba()</code> applies the same adjustment before softmax, so the output probabilities are also calibrated for class frequency.</p>
+</div>
+
+<!-- ======================== SECTION 9 ======================== -->
+<div class="section" id="s9">
+  <h2><span class="step-num">9</span> Stage 8: Deferred Re-Weighting (DRW)</h2>
+
+  <h3>The key insight</h3>
+  <p>Research by Cao et al. (2019) showed that applying class re-weighting <em>from the start</em> of training can actually hurt performance. Early in training, the model is still learning basic feature representations — if you aggressively upweight rare classes, the noisy gradients from those few samples can destabilize learning. It's better to let the model learn general features first, then shift attention to tail classes.</p>
+
+  <h3>Two-phase training schedule</h3>
+
+  <table>
+    <tr><th></th><th>Phase 1: Epochs 1–14</th><th>Phase 2: Epochs 15–20</th></tr>
+    <tr><td><strong>Class weights</strong></td><td>None (all classes treated equally)</td><td>Inverse-sqrt weights activated</td></tr>
+    <tr><td><strong>Learning rate</strong></td><td>$10^{-3}$</td><td>$2 \times 10^{-4}$ (5× reduction)</td></tr>
+    <tr><td><strong>Focus</strong></td><td>Learn stable shared representations</td><td>Fine-tune for tail classes</td></tr>
+  </table>
+
+  <h3>Class weight formula</h3>
+  <p>When DRW activates at epoch 15, the loss function uses per-class weights defined as:</p>
+  <div class="math-block">
+    $$w_c^{\text{raw}} = \frac{1}{\sqrt{n_c + \epsilon}}, \quad \epsilon = 10^{-12}$$
+  </div>
+
+  <p>These raw weights are then <strong>normalized</strong> so that the sample-weighted mean equals 1.0 (this prevents the overall loss magnitude from jumping when DRW activates):</p>
+  <div class="math-block">
+    $$w_c^{\text{norm}} = \frac{w_c^{\text{raw}}}{\frac{\sum_j w_j^{\text{raw}} \cdot n_j}{\sum_j n_j}}$$
+  </div>
+
+  <p>Finally, weights are <strong>clipped</strong> to $[0.25, 4.0]$ to prevent extreme values:</p>
+  <div class="math-block">
+    $$w_c = \text{clip}(w_c^{\text{norm}}, 0.25, 4.0)$$
+  </div>
+
+  <h3>Concrete example</h3>
+  <table>
+    <tr><th>Class</th><th>$n_c$</th><th>$w_c^{\text{raw}}$</th><th>After normalization &amp; clip</th><th>Effect</th></tr>
+    <tr><td>Common (10,000 samples)</td><td>10,000</td><td>$\frac{1}{\sqrt{10000}} = 0.01$</td><td>~0.25 (clipped at min)</td><td>Downweighted 4×</td></tr>
+    <tr><td>Medium (500 samples)</td><td>500</td><td>$\frac{1}{\sqrt{500}} = 0.045$</td><td>~1.0</td><td>Neutral</td></tr>
+    <tr><td>Rare (10 samples)</td><td>10</td><td>$\frac{1}{\sqrt{10}} = 0.316$</td><td>~4.0 (clipped at max)</td><td>Upweighted 4×</td></tr>
+  </table>
+
+  <h3>The weighted cross-entropy loss</h3>
+  <p>During the DRW phase, the full loss function becomes:</p>
+  <div class="math-block">
+    $$\mathcal{L} = -\sum_{i=1}^{N} w_{y_i} \cdot \log \frac{\exp(\tilde{s}_{y_i})}{\sum_{c=1}^{86} \exp(\tilde{s}_c)}$$
+  </div>
+  <p>where $\tilde{s}_c$ is the logit-adjusted score and $w_{y_i}$ is the class weight for the true label of sample $i$.</p>
+
+  <h3>Learning rate reduction</h3>
+  <p>At the DRW switch (epoch 15), the learning rate drops by factor <code>drw_lr_drop = 0.2</code>:</p>
+  <div class="math-block">
+    $$\text{lr}_{\text{new}} = \text{lr}_{\text{old}} \times 0.2 = 10^{-3} \times 0.2 = 2 \times 10^{-4}$$
+  </div>
+
+  <div class="callout callout-why">
+    <strong>Why reduce learning rate when DRW starts?</strong>
+    The introduction of class weights changes the loss landscape. If the learning rate stays high, the model might overshoot and destabilize. A smaller learning rate allows the model to gently adjust toward tail-class improvement without forgetting what it already learned.
+  </div>
+
+  <h3>Sanity checks in the code</h3>
+  <p>The code includes extensive validation of class weights to prevent degenerate training:</p>
+  <table>
+    <tr><th>Check</th><th>Why it matters</th></tr>
+    <tr><td>All weights strictly positive</td><td>Zero-weight classes would never contribute to the loss</td></tr>
+    <tr><td>&lt;50% of classes at clip_min</td><td>If most classes are clipped, the weighting isn't doing much</td></tr>
+    <tr><td>At least 4 unique weight values</td><td>Ensures the weights actually differentiate between classes</td></tr>
+    <tr><td>Coefficient of variation &gt; 0.001</td><td>Weights must have meaningful spread</td></tr>
+  </table>
+</div>
+
+<!-- ======================== SECTION 10 ======================== -->
+<div class="section" id="s10">
+  <h2><span class="step-num">10</span> Stage 9: Training Loop &amp; Optimization</h2>
+
+  <h3>Training configuration</h3>
+  <table>
+    <tr><th>Parameter</th><th>Value</th><th>Why</th></tr>
+    <tr><td>Optimizer</td><td>Adam</td><td>Adaptive learning rates per parameter, works well for deep learning</td></tr>
+    <tr><td>Learning rate</td><td>$10^{-3}$ → $2 \times 10^{-4}$</td><td>Standard start, then reduced when DRW kicks in</td></tr>
+    <tr><td>Weight decay</td><td>$10^{-5}$</td><td>L2 regularization to prevent overfitting</td></tr>
+    <tr><td>Batch size</td><td>64</td><td>Balance between GPU memory and gradient stability</td></tr>
+    <tr><td>Epochs</td><td>20</td><td>Enough for convergence with DRW switch at epoch 15</td></tr>
+    <tr><td>Dropout</td><td>0.2</td><td>Applied throughout the model for regularization</td></tr>
+  </table>
+
+  <h3>What happens in one training epoch</h3>
+
+  <div class="steps">
+    <div class="step-item">
+      <div>
+        <strong>Check DRW phase:</strong> If the current epoch $\geq$ 15, activate class weights and drop the learning rate (only on the exact transition epoch).
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>For each mini-batch of 64 pairs:</strong><br>
+        (a) Move graphs, features, and labels to GPU<br>
+        (b) Forward pass: compute logits from both drug graphs + fingerprints<br>
+        (c) Apply logit adjustment: $\tilde{\mathbf{s}} = \mathbf{s} + 0.5 \cdot \log \boldsymbol{\pi}$<br>
+        (d) Compute the <strong>objective loss</strong> (weighted CE on adjusted logits)<br>
+        (e) Also compute the <strong>plain NLL loss</strong> (standard CE with no weights) for diagnostics<br>
+        (f) Backpropagate and update model parameters
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Evaluate on validation set:</strong> Forward pass (no gradients), compute all metrics.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Model selection:</strong> If this epoch's <strong>validation macro PR-AUC</strong> is the best so far, save the model checkpoint.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Early stopping:</strong> If macro PR-AUC hasn't improved for 5 consecutive epochs (patience=5), stop training early.
+      </div>
+    </div>
+  </div>
+
+  <h3>Why track two losses?</h3>
+  <p>The code tracks both <code>objective_loss</code> (the actual loss being optimized, which includes class weights) and <code>plain_nll_loss</code> (standard cross-entropy without any weights). This is diagnostically important because:</p>
+
+  <p>When DRW activates at epoch 15, the objective loss often <em>increases</em> even though the model is improving — because the weights amplify the contribution of hard tail-class errors. The plain NLL loss provides an unbiased view of whether the model is actually learning better representations overall.</p>
+
+  <h3>Model selection metric: Why macro PR-AUC?</h3>
+  <div class="callout callout-key">
+    <strong>Macro PR-AUC is ideal for imbalanced multi-class problems</strong> because it rewards the model for ranking positive examples high <em>across all classes equally</em>, including rare ones. Accuracy would let the model get away with always predicting common classes. Macro PR-AUC forces the model to be good at every class to score well.
+  </div>
+</div>
+
+<!-- ======================== SECTION 11 ======================== -->
+<div class="section" id="s11">
+  <h2><span class="step-num">11</span> Stage 10: Evaluation Metrics — The Full Suite</h2>
+
+  <p>Your thesis reports 10 different metrics. Here is each one explained with its math and interpretation.</p>
+
+  <!-- ACCURACY -->
+  <h3>1. Accuracy</h3>
+  <div class="math-block">
+    $$\text{Accuracy} = \frac{\text{Number of correct predictions}}{\text{Total predictions}} = \frac{\sum_{i=1}^{N} \mathbb{1}[\hat{y}_i = y_i]}{N}$$
+  </div>
+  <p><strong>Intuition:</strong> "What fraction of all predictions were correct?" Simple and interpretable, but <strong>misleading for imbalanced data</strong> — a model that always predicts the most common class could get 30%+ accuracy while being useless for rare classes.</p>
+  <p><strong>Your result:</strong> 0.6351 mean (range 0.62–0.66 across folds)</p>
+
+  <!-- MACRO-F1 -->
+  <h3>2. Macro-F1</h3>
+  <p>First, for each class $c$, compute precision and recall:</p>
+  <div class="math-block">
+    $$\text{Precision}_c = \frac{TP_c}{TP_c + FP_c}, \quad \text{Recall}_c = \frac{TP_c}{TP_c + FN_c}$$
+  </div>
+  <p>Then compute the F1-score (harmonic mean of precision and recall) for each class:</p>
+  <div class="math-block">
+    $$F1_c = 2 \cdot \frac{\text{Precision}_c \cdot \text{Recall}_c}{\text{Precision}_c + \text{Recall}_c}$$
+  </div>
+  <p>Finally, take the <strong>unweighted average</strong> across all classes present in the test set:</p>
+  <div class="math-block">
+    $$\text{Macro-F1} = \frac{1}{|\mathcal{C}_{\text{test}}|} \sum_{c \in \mathcal{C}_{\text{test}}} F1_c$$
+  </div>
+
+  <p><strong>Intuition:</strong> "How well does the model perform on average across <em>all</em> classes?" Because it's an unweighted average, a rare class with 10 samples counts just as much as a common class with 10,000 samples. This directly measures whether the model works for the full class spectrum.</p>
+  <p><strong>Your result:</strong> 0.5032 mean — this is notably lower than accuracy because rare classes drag the average down.</p>
+
+  <!-- MICRO-F1 -->
+  <h3>3. Micro-F1</h3>
+  <div class="math-block">
+    $$\text{Micro-F1} = \frac{\sum_c TP_c}{\sum_c TP_c + \frac{1}{2}(\sum_c FP_c + \sum_c FN_c)}$$
+  </div>
+  <p><strong>Intuition:</strong> Pools all true positives, false positives, and false negatives across classes before computing F1. This is <em>dominated by common classes</em> (since they contribute more TP/FP/FN). In multi-class classification, Micro-F1 equals Accuracy.</p>
+
+  <!-- COHEN'S KAPPA -->
+  <h3>4. Cohen's Kappa ($\kappa$)</h3>
+  <div class="math-block">
+    $$\kappa = \frac{p_o - p_e}{1 - p_e}$$
+  </div>
+  <p>where $p_o$ is the observed agreement (accuracy) and $p_e$ is the expected agreement by chance:</p>
+  <div class="math-block">
+    $$p_e = \sum_{c=1}^{86} \frac{n_c^{\text{true}} \cdot n_c^{\text{pred}}}{N^2}$$
+  </div>
+
+  <p><strong>Intuition:</strong> "How much better is the model than random guessing?" If $\kappa = 0$, the model is no better than chance. If $\kappa = 1$, perfect agreement. Your $\kappa = 0.558$ means the model is substantially better than random, accounting for the class distribution.</p>
+
+  <div class="callout callout-info">
+    <strong>Kappa interpretation guidelines:</strong> 0.0–0.20 = slight, 0.21–0.40 = fair, 0.41–0.60 = moderate, 0.61–0.80 = substantial, 0.81–1.00 = almost perfect. Your 0.558 falls in "moderate" to "substantial."
+  </div>
+
+  <!-- MACRO ROC-AUC -->
+  <h3>5. Macro ROC-AUC (One-vs-Rest)</h3>
+  <p>For each class $c$, treat the problem as binary: "class $c$ vs. all other classes." Compute the ROC-AUC for this binary problem using the predicted probability $P(y=c)$:</p>
+  <div class="math-block">
+    $$\text{ROC-AUC}_c = \int_0^1 \text{TPR}_c(t) \; d\text{FPR}_c(t)$$
+  </div>
+  <p>Then average across all classes that have both positive and negative examples in the test set:</p>
+  <div class="math-block">
+    $$\text{Macro ROC-AUC} = \frac{1}{|\mathcal{C}_{\text{scored}}|}\sum_{c \in \mathcal{C}_{\text{scored}}} \text{ROC-AUC}_c$$
+  </div>
+
+  <p><strong>Intuition:</strong> "If I pick a random positive and a random negative sample for class $c$, what's the probability the model ranks the positive higher?" A value of 0.5 is random; 1.0 is perfect. Your 0.9395 means the model has excellent <strong>discrimination ability</strong> — it can rank the correct class high even if the exact probability isn't calibrated.</p>
+
+  <div class="callout callout-warn">
+    <strong>Important:</strong> Classes that have zero positive or zero negative test samples are <em>excluded</em> from the macro average (you can't compute ROC-AUC without both). The code logs which classes are excluded, ensuring transparency.
+  </div>
+
+  <!-- MACRO PR-AUC -->
+  <h3>6. Macro PR-AUC (One-vs-Rest) — Your Model Selection Metric</h3>
+  <p>Similar to ROC-AUC but uses the <strong>Precision-Recall curve</strong> instead:</p>
+  <div class="math-block">
+    $$\text{PR-AUC}_c = \int_0^1 \text{Precision}_c(r) \; d\text{Recall}_c(r)$$
+  </div>
+  <div class="math-block">
+    $$\text{Macro PR-AUC} = \frac{1}{|\mathcal{C}_{\text{scored}}|}\sum_{c \in \mathcal{C}_{\text{scored}}} \text{PR-AUC}_c$$
+  </div>
+
+  <p><strong>Intuition:</strong> PR-AUC is <em>more demanding</em> than ROC-AUC for imbalanced problems. ROC-AUC can be high even when the model generates many false positives for rare classes (because there are so many true negatives). PR-AUC penalizes false positives much more heavily. A random baseline has PR-AUC equal to the class prior (very small for rare classes), so your 0.5519 is meaningfully above chance.</p>
+
+  <!-- TAIL MACRO PR-AUC -->
+  <h3>7. Tail Macro PR-AUC</h3>
+  <div class="math-block">
+    $$\text{Tail classes} = \text{bottom } 20\% \text{ of classes ranked by training support}$$
+  </div>
+  <p>The code sorts all 86 classes by their training sample count, takes the bottom 20% (~17 classes), and computes macro PR-AUC only over those:</p>
+  <div class="math-block">
+    $$\text{Tail Macro PR-AUC} = \frac{1}{|\mathcal{C}_{\text{tail}}|}\sum_{c \in \mathcal{C}_{\text{tail}}} \text{PR-AUC}_c$$
+  </div>
+
+  <p><strong>Your result:</strong> 0.2156 mean — substantially lower than overall PR-AUC (0.5519), confirming that rare classes remain the hardest challenge.</p>
+
+  <!-- ECE -->
+  <h3>8. Expected Calibration Error (ECE)</h3>
+  <p>ECE measures whether the model's predicted confidence matches its actual accuracy. The procedure:</p>
+
+  <div class="steps">
+    <div class="step-item">
+      <div>For each sample, take the <strong>maximum predicted probability</strong> as the confidence: $\text{conf}_i = \max_c P(y=c|\mathbf{x}_i)$</div>
+    </div>
+    <div class="step-item">
+      <div>Divide samples into 15 bins based on their confidence level: [0.0–0.067], [0.067–0.133], ..., [0.933–1.0]</div>
+    </div>
+    <div class="step-item">
+      <div>For each bin, compute the average confidence and the actual accuracy</div>
+    </div>
+    <div class="step-item">
+      <div>ECE is the weighted average of the gap between confidence and accuracy across bins:</div>
+    </div>
+  </div>
+
+  <div class="math-block">
+    $$\text{ECE} = \sum_{b=1}^{15} \frac{|B_b|}{N} \left|\text{acc}(B_b) - \text{conf}(B_b)\right|$$
+  </div>
+
+  <p><strong>Intuition:</strong> If the model says "I'm 80% confident," it should be correct about 80% of the time. ECE = 0 means perfect calibration. Your ECE of ~0.20 means the model's probabilities are <em>not</em> well calibrated — it tends to be overconfident or underconfident. Lower is better.</p>
+
+  <div class="callout callout-warn">
+    <strong>Key finding:</strong> Your strongest discriminative model (GAT+ECFP+LA+DRW) has the <em>worst</em> ECE (0.20), while the simpler GIN-only model has the best ECE (0.12). This is the <strong>discrimination vs. calibration trade-off</strong> — a major discussion point for your defense.
+  </div>
+
+  <!-- BRIER SCORE -->
+  <h3>9. Brier Score</h3>
+  <div class="math-block">
+    $$\text{Brier} = \frac{1}{N} \sum_{i=1}^{N} \sum_{c=1}^{86} (P_{ic} - \mathbb{1}[y_i = c])^2$$
+  </div>
+
+  <p><strong>Intuition:</strong> The mean squared error between the predicted probability vector and the one-hot true label. If the model perfectly predicts $P(y=c) = 1$ for the correct class and 0 for all others, Brier = 0. It combines both discrimination and calibration into a single score. Lower is better.</p>
+  <p><strong>Your result:</strong> ~0.566 — a composite view confirming room for improvement in probability quality.</p>
+
+  <!-- NLL -->
+  <h3>10. Negative Log-Likelihood (NLL)</h3>
+  <div class="math-block">
+    $$\text{NLL} = -\frac{1}{N} \sum_{i=1}^{N} \log P(y = y_i | \mathbf{x}_i)$$
+  </div>
+
+  <p><strong>Intuition:</strong> "How surprised is the model by the true labels?" If the model assigns high probability to the correct class, $-\log P$ is small. If the model assigns low probability (it's surprised), $-\log P$ is large. This is a <strong>proper scoring rule</strong> — the only way to minimize it is to predict the true probabilities. Lower is better.</p>
+
+  <h3>Summary table</h3>
+  <table>
+    <tr><th>Metric</th><th>Measures</th><th>Better ↑↓</th><th>Your Best Model</th></tr>
+    <tr><td>Accuracy</td><td>Overall correctness</td><td>↑</td><td>0.6351</td></tr>
+    <tr><td>Macro-F1</td><td>Per-class balanced performance</td><td>↑</td><td>0.5032</td></tr>
+    <tr><td>Micro-F1</td><td>Sample-weighted performance</td><td>↑</td><td>≈ Accuracy</td></tr>
+    <tr><td>Cohen's κ</td><td>Agreement beyond chance</td><td>↑</td><td>0.5579</td></tr>
+    <tr><td>Macro ROC-AUC</td><td>Ranking/discrimination quality</td><td>↑</td><td>0.9395</td></tr>
+    <tr><td>Macro PR-AUC</td><td>Ranking under imbalance (model selection metric)</td><td>↑</td><td>0.5519</td></tr>
+    <tr><td>Tail Macro PR-AUC</td><td>Rare-class retrieval quality</td><td>↑</td><td>0.2156</td></tr>
+    <tr><td>ECE</td><td>Probability calibration</td><td>↓</td><td>0.1999</td></tr>
+    <tr><td>Brier Score</td><td>Combined discrimination + calibration</td><td>↓</td><td>0.5663</td></tr>
+    <tr><td>NLL</td><td>Log-likelihood of true labels</td><td>↓</td><td>Reported per run</td></tr>
+  </table>
+</div>
+
+<!-- ======================== SECTION 12 ======================== -->
+<div class="section" id="s12">
+  <h2><span class="step-num">12</span> Putting It All Together — End-to-End Flow</h2>
+
+  <p>Let's trace a single prediction through the entire system:</p>
+
+  <h3>Input: A drug pair</h3>
+  <pre><code>drug_a = "CC(=O)Oc1ccccc1C(=O)O"   # Aspirin
+drug_b = "CC12CCC3C(C1CCC2O)CCC4=..."  # Some steroid
+true_label = 42</code></pre>
+
+  <h3>Step-by-step forward pass</h3>
+
+  <div class="steps">
+    <div class="step-item">
+      <div>
+        <strong>SMILES → Molecular Graph:</strong> RDKit parses each SMILES into a graph. Aspirin has ~13 atoms (nodes) with 7 features each, and ~13 bonds (edges × 2 directions) with 5 features each.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>SMILES → ECFP4:</strong> RDKit computes a 2048-bit fingerprint for each drug. Aspirin's fingerprint encodes substructures like "aromatic ring," "ester group," "carboxylic acid," etc.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>GAT encoding (shared weights):</strong> Both graphs pass through the same 3-layer GAT. After 3 rounds of attention-weighted message passing and global mean pooling, we get $\mathbf{g}_a, \mathbf{g}_b \in \mathbb{R}^{128}$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>ECFP projection:</strong> Each 2048-bit fingerprint is projected to 128 dims: $\mathbf{p}_a, \mathbf{p}_b \in \mathbb{R}^{128}$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Fusion:</strong> Graph and ECFP embeddings are concatenated and fused: $\mathbf{h}_a = \text{MLP}([\mathbf{g}_a \| \mathbf{p}_a]) \in \mathbb{R}^{128}$. Same for drug B.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Pair features:</strong> The symmetric pair vector is constructed: $\mathbf{z}_{ab} = [\min \| \max \| \text{diff} \| \text{product}] \in \mathbb{R}^{512}$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Classification:</strong> The MLP classifier produces 86 raw logits: $\mathbf{s} \in \mathbb{R}^{86}$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Logit adjustment:</strong> $\tilde{\mathbf{s}} = \mathbf{s} + 0.5 \cdot \log \boldsymbol{\pi}$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Softmax → probabilities:</strong> $P(y=c) = \frac{\exp(\tilde{s}_c)}{\sum_j \exp(\tilde{s}_j)}$ for each class $c$.
+      </div>
+    </div>
+    <div class="step-item">
+      <div>
+        <strong>Prediction:</strong> $\hat{y} = \arg\max_c P(y=c)$. If $\hat{y} = 42$, the prediction matches the true label!
+      </div>
+    </div>
+  </div>
+
+  <h3>During training (backward pass)</h3>
+  <p>The loss is computed as:</p>
+  <div class="math-block">
+    $$\mathcal{L} = -w_{42} \cdot \log P(y=42)$$
+  </div>
+  <p>where $w_{42}$ is the class weight for type 42 (if DRW is active). Gradients flow backward through the classifier, fusion MLP, ECFP projection, all 3 GAT layers, updating every learnable parameter.</p>
+
+  <div class="callout callout-key">
+    <strong>Total parameter flow:</strong>
+    ECFP is fixed (not learned) — it always provides the same fingerprint for the same molecule. Everything else is learned end-to-end: GAT attention weights, GAT linear transforms, ECFP projection, fusion MLP, and the classifier. The logit adjustment uses fixed log-priors computed once from the training set.
+  </div>
+
+  <div style="text-align:center; margin-top:2rem; padding:1.5rem; background:linear-gradient(135deg, #059669, #1a56db); color:white; border-radius:12px;">
+    <p style="font-size:1.1rem; font-weight:600; margin:0;">You now understand every piece from data loading to final evaluation.</p>
+    <p style="font-size:0.9rem; opacity:0.9; margin:0.5rem 0 0;">Good luck with your thesis defense, Newton!</p>
+  </div>
+</div>
+
+</div><!-- end container -->
+</body>
+</html>

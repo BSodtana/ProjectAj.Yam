@@ -226,6 +226,7 @@ Cold-drug v3 defaults:
 - Group-aware unordered-pair splitting with ambiguity filtering (`drop_conflicts`)
 - Degree-aware drug-to-fold assignment (`k=5` by default)
 - S1 fold construction (`valid=(f+1)%k`, `test=f`) with leakage assertions
+- Fold assignment search optimizes selected-fold test label coverage (`cold_selection_objective=selected_fold`)
 - Fold report written to `cold_drug_kfold_report.json` beside fold artifacts
 
 ## Limitations

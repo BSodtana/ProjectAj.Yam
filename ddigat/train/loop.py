@@ -80,6 +80,12 @@ def train_one_epoch(
         total_batches += 1
         if has_class_weights:
             batch_w = getattr(model, "class_weights").to(batch["y"].device)[batch["y"]]
+            if bool((batch_w <= 0).any().item()):
+                bad_ids = torch.unique(batch["y"][batch_w <= 0]).detach().cpu().tolist()
+                raise RuntimeError(
+                    "Encountered non-positive class weight(s) for target labels in train batch. "
+                    f"Likely unseen-label leakage into train split. offending_label_ids={bad_ids}"
+                )
             batch_w_min = float(torch.min(batch_w).item())
             batch_w_max = float(torch.max(batch_w).item())
             observed_target_weight_min = min(observed_target_weight_min, batch_w_min)
@@ -198,6 +204,11 @@ def fit(
     min_delta: float = 0.0,
     amp_enabled: bool = True,
     train_class_counts: np.ndarray | None = None,
+    enable_drw: bool = False,
+    drw_start_epoch: int | None = None,
+    drw_lr_drop: float = 0.2,
+    drw_class_weights: torch.Tensor | None = None,
+    scheduler: Any | None = None,
 ) -> dict[str, Any]:
     checkpoint_path = Path(output_dir) / "checkpoints" / "best.pt"
     early_stopper = EarlyStopping(patience=patience, min_delta=min_delta, mode="max")
@@ -206,8 +217,31 @@ def fit(
     history: list[dict[str, Any]] = []
     best_metrics: dict[str, Any] | None = None
     best_epoch = -1
+    lr_dropped = False
+
+    if enable_drw:
+        if drw_start_epoch is None:
+            raise ValueError("drw_start_epoch must be provided when enable_drw=True")
+        if int(drw_start_epoch) < 1 or int(drw_start_epoch) > int(epochs):
+            raise ValueError(f"drw_start_epoch must be in [1, {epochs}], got {drw_start_epoch}")
+        if drw_class_weights is None:
+            raise ValueError("drw_class_weights must be provided when enable_drw=True")
+        if not hasattr(model, "set_class_weights"):
+            raise TypeError("Model must implement set_class_weights(class_weights) for DRW support")
+        if scheduler is not None and abs(float(drw_lr_drop) - 1.0) > 1e-12:
+            raise ValueError("DRW LR drop requires scheduler=None to avoid scheduler overwrite of manual LR scaling.")
 
     for epoch in range(1, epochs + 1):
+        drw_on = bool(enable_drw and drw_start_epoch is not None and epoch >= int(drw_start_epoch))
+        if enable_drw:
+            if epoch == int(drw_start_epoch) and not lr_dropped:
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = float(param_group["lr"]) * float(drw_lr_drop)
+                lr_dropped = True
+            # Hard switch: disable weighting before DRW start, enable it from switch epoch onward.
+            model.set_class_weights(drw_class_weights if drw_on else None)
+        current_lr = float(optimizer.param_groups[0]["lr"]) if len(optimizer.param_groups) > 0 else float("nan")
+
         train_metrics = train_one_epoch(
             model=model,
             loader=train_loader,
@@ -232,26 +266,61 @@ def fit(
             "valid_loss": valid_metrics["loss"],
             "valid_macro_roc_auc_ovr": valid_metrics.get("macro_roc_auc_ovr"),
             "valid_macro_pr_auc_ovr": valid_metrics.get("macro_pr_auc_ovr"),
+            "drw_on": bool(drw_on),
+            "lr": current_lr,
         }
+        if drw_on and drw_class_weights is not None:
+            cw_cpu = drw_class_weights.detach().cpu()
+            row["drw_class_weight_min"] = float(torch.min(cw_cpu).item())
+            row["drw_class_weight_max"] = float(torch.max(cw_cpu).item())
+            row["drw_class_weight_mean"] = float(torch.mean(cw_cpu).item())
         history.append(row)
-        LOGGER.info(
-            "Epoch %d/%d | train_loss=%.4f train_objective_loss=%.4f train_plain_nll=%.4f "
-            "weight_diverse_batches_pct=%.2f valid_loss=%.4f valid_acc=%.4f valid_macro_f1=%.4f "
-            "valid_micro_f1=%.4f valid_kappa=%.4f valid_macro_pr_auc=%.4f valid_macro_roc_auc=%.4f",
-            epoch,
-            epochs,
-            row["train_loss"],
-            row["train_objective_loss"],
-            row["train_plain_nll_loss"],
-            row["train_weight_diverse_batches_pct"],
-            row["valid_loss"],
-            valid_metrics.get("accuracy", float("nan")),
-            valid_metrics.get("macro_f1", float("nan")),
-            valid_metrics.get("micro_f1", float("nan")),
-            valid_metrics.get("cohen_kappa", float("nan")),
-            row["valid_macro_pr_auc_ovr"],
-            row["valid_macro_roc_auc_ovr"],
-        )
+        if drw_on and drw_class_weights is not None:
+            LOGGER.info(
+                "Epoch %d/%d | drw_on=%s lr=%.6g train_loss=%.4f train_objective_loss=%.4f train_plain_nll=%.4f "
+                "weight_diverse_batches_pct=%.2f valid_loss=%.4f valid_acc=%.4f valid_macro_f1=%.4f "
+                "valid_micro_f1=%.4f valid_kappa=%.4f valid_macro_pr_auc=%.4f valid_macro_roc_auc=%.4f "
+                "class_w[min/mean/max]=%.4f/%.4f/%.4f",
+                epoch,
+                epochs,
+                bool(drw_on),
+                current_lr,
+                row["train_loss"],
+                row["train_objective_loss"],
+                row["train_plain_nll_loss"],
+                row["train_weight_diverse_batches_pct"],
+                row["valid_loss"],
+                valid_metrics.get("accuracy", float("nan")),
+                valid_metrics.get("macro_f1", float("nan")),
+                valid_metrics.get("micro_f1", float("nan")),
+                valid_metrics.get("cohen_kappa", float("nan")),
+                row["valid_macro_pr_auc_ovr"],
+                row["valid_macro_roc_auc_ovr"],
+                row["drw_class_weight_min"],
+                row["drw_class_weight_mean"],
+                row["drw_class_weight_max"],
+            )
+        else:
+            LOGGER.info(
+                "Epoch %d/%d | drw_on=%s lr=%.6g train_loss=%.4f train_objective_loss=%.4f train_plain_nll=%.4f "
+                "weight_diverse_batches_pct=%.2f valid_loss=%.4f valid_acc=%.4f valid_macro_f1=%.4f "
+                "valid_micro_f1=%.4f valid_kappa=%.4f valid_macro_pr_auc=%.4f valid_macro_roc_auc=%.4f",
+                epoch,
+                epochs,
+                bool(drw_on),
+                current_lr,
+                row["train_loss"],
+                row["train_objective_loss"],
+                row["train_plain_nll_loss"],
+                row["train_weight_diverse_batches_pct"],
+                row["valid_loss"],
+                valid_metrics.get("accuracy", float("nan")),
+                valid_metrics.get("macro_f1", float("nan")),
+                valid_metrics.get("micro_f1", float("nan")),
+                valid_metrics.get("cohen_kappa", float("nan")),
+                row["valid_macro_pr_auc_ovr"],
+                row["valid_macro_roc_auc_ovr"],
+            )
 
         current_score = float(valid_metrics.get("macro_pr_auc_ovr", float("-inf")))
         if best_metrics is None or current_score > float(best_metrics.get("macro_pr_auc_ovr", float("-inf"))):

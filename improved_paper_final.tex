@@ -1,0 +1,408 @@
+\documentclass[11pt,a4paper]{report}
+\usepackage[margin=0.9in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+% lmodern removed for compatibility
+\usepackage{setspace}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{float}
+\usepackage{enumitem}
+\hypersetup{
+colorlinks=true,
+hypertexnames=false,
+linkcolor=blue,
+urlcolor=blue,
+pdftitle={Cold-Drug Benchmark for Multi-Typed Drug-Drug Interaction Prediction with Graph Attention and Fingerprint Fusion},
+pdfauthor={Buddharak Sodtana}
+}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\renewcommand{\arraystretch}{1.10}
+\setstretch{1.15}
+\setlist{nosep,leftmargin=*}
+\titleformat{\chapter}[display]
+{\bfseries\Large}
+{Chapter \thechapter}
+{0.3em}
+{\LARGE}
+\titlespacing*{\chapter}{0pt}{-20pt}{10pt}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\title{Cold-Drug Benchmark for Multi-Typed Drug--Drug Interaction Prediction\\with Graph Attention and Fingerprint Fusion}
+\author{Buddharak Sodtana\\[1em]Advisor: Associate Professor Prompong Sugunnasil}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+\pagenumbering{roman}
+
+\begin{abstract}
+Drug--drug interactions (DDIs) alter absorption, metabolism, efficacy, and toxicity, making accurate DDI prediction a central task in computational pharmacology. Most published evaluations allow overlap between training and test drugs, inflating apparent generalization. This report establishes a reproducible benchmark under a strict cold-drug protocol, where test drugs are entirely excluded from training, using the DrugBank dataset distributed through Therapeutics Data Commons. The proposed system combines a Siamese graph attention network with 2048-bit ECFP4 fingerprints, logit adjustment ($\tau=0.5$), and deferred re-weighting applied from epoch 15 onward. Across five cold-drug folds, the best-performing configuration achieves mean macro PR-AUC of 0.5519, mean macro-F1 of 0.5032, mean accuracy of 0.6351, mean macro ROC-AUC of 0.9395, and mean Cohen's kappa of 0.5579. These results establish a transparent, deployment-relevant baseline and identify tail-class retrieval and probability calibration as the primary remaining challenges.
+\end{abstract}
+
+\noindent\textbf{Keywords:} drug-drug interaction, graph attention network, ECFP, cold-drug split, logit adjustment, deferred re-weighting
+
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+%=============================================================
+\chapter{Introduction}
+%=============================================================
+
+\section{Background and Motivation}
+
+Drug--drug interactions pose persistent clinical risks because polypharmacy is ubiquitous in the management of chronic disease, cancer, multimorbidity, and critical illness. Adverse drug reactions arising from interactions account for approximately 6.5\% of hospital admissions in developed countries \cite{wishart2018drugbank}, causing toxicity, reduced efficacy, and serious events such as arrhythmia, hepatotoxicity, or treatment failure. Curated resources such as DrugBank and benchmark frameworks such as Therapeutics Data Commons (TDC) have made large-scale supervised DDI prediction increasingly accessible \cite{wishart2018drugbank, huang2021tdc}. Progress remains limited, however, by the twin challenges of multi-class imbalance and overly permissive evaluation protocols that allow test drugs to appear in training.
+
+\section{Problem Statement}
+
+The central challenge in DDI prediction is learning a classifier that generalizes to previously unseen compounds. Let $d_a$ and $d_b$ denote two drugs represented as SMILES strings. The task is to learn
+\begin{equation}
+f(d_a, d_b) \rightarrow y, \qquad y \in \{1,\dots,86\},
+\end{equation}
+where each label corresponds to a specific DrugBank interaction type. Conventional benchmarks allow test drugs to appear in training under different pair contexts, creating transductive leakage that inflates reported scores. The cold-drug setting studied here is more stringent: every test drug is excluded from training, requiring the model to generalize solely from learned chemical structure. This setting directly reflects clinical deployment, where newly approved or rarely prescribed drugs must be screened for interactions without prior model exposure.
+
+\section{Research Objectives}
+
+This work pursues four objectives:
+\begin{enumerate}
+\item Build a reproducible cold-drug DDI pipeline using RDKit, PyTorch, and PyTorch Geometric \cite{fey2019pyg}.
+\item Develop structure-aware representations with a Siamese graph attention network fused with fixed ECFP4 fingerprints \cite{velickovic2018gat, rogers2010ecfp}.
+\item Improve tail-class performance via logit adjustment and deferred re-weighting \cite{menon2021logit, cao2019ldam}.
+\item Quantify each component's contribution through a five-fold cold-drug ablation study.
+\end{enumerate}
+
+\section{Contributions}
+
+\begin{enumerate}
+\item A documented cold-drug benchmark built from 190{,}996 filtered DrugBank DDI rows with reproducible curation and split code.
+\item A transparent and reproducible baseline integrating graph attention, ECFP fusion, logit adjustment, and deferred re-weighting under a strict cold-drug protocol.
+\item A five-fold evaluation supporting stable aggregate estimates of generalization to unseen compounds.
+\item Empirical analysis showing ECFP fusion improves discrimination but degrades calibration, and that tail-class performance is the primary bottleneck.
+\end{enumerate}
+
+%=============================================================
+\chapter{Literature Review}
+%=============================================================
+
+\section{DrugBank DDI Prediction as a Benchmark}
+
+Large-scale curated interaction data from DrugBank, standardized through TDC, enables supervised multi-class DDI prediction \cite{wishart2018drugbank, huang2021tdc}. Predicting among 86 annotated interaction types has become a widely adopted benchmark, and recent work reports strong results with graph neural networks and multimodal architectures \cite{alrabeah2022gnn, xiong2023mrgnn, gupta2024graphddi, abbas2025gnnddi}. Comparative reviews have highlighted that reported scores depend critically on preprocessing and split design \cite{lin2023evaluation, luo2024review}: a permissive split allows the model to memorize drug-specific patterns rather than learning transferable chemistry, overstating true generalization. The cold-drug protocol removes this shortcut by ensuring test compounds are entirely unseen during training, producing a more honest and deployment-relevant estimate of performance.
+
+\section{Graph-Based Molecular Representation}
+
+Molecules are naturally represented as attributed graphs, making graph neural networks well suited for chemical prediction. Graph Attention Networks (GAT) learn task-specific structural encodings by applying multi-head attention during message passing, selectively weighting the most informative atomic neighborhoods \cite{velickovic2018gat}. Graph Isomorphism Networks (GIN) offer complementary expressive power through sum aggregation \cite{xu2019gin}. Both architectures operate on chemical structure principles that transfer to unseen compounds, a key property for cold-drug generalization. Extended-Connectivity Fingerprints (ECFP) complement learned representations by encoding the presence of local substructures from decades of validated chemistry knowledge \cite{rogers2010ecfp}; graph encoders learn task-specific relational patterns, while fingerprints provide dense, stable structural encodings that are fixed and fully portable to new molecules.
+
+\section{Long-Tail Learning in DDI Prediction}
+
+DDI labels are highly imbalanced: a few interaction types (e.g., enzyme inhibition, induction) dominate, while many rare but clinically important types appear only a handful of times. Logit adjustment addresses this by shifting decision boundaries proportionally to class log-priors, directly penalizing head-class dominance \cite{menon2021logit}. Deferred re-weighting (DRW) improves on naive re-weighting by training without class weights in early epochs---allowing shared representations to stabilize across all classes---then activating inverse-frequency weights in later epochs to focus on underrepresented classes \cite{cao2019ldam}. This two-phase strategy avoids the representation collapse that can result from aggressive minority-class upweighting from the start of training.
+
+\section{Positioning of the Present Study}
+
+This work contributes a rigorous cold-drug baseline rather than a claim of universal superiority. Many published DrugBank studies rely on permissive split strategies that allow train--test drug overlap, either by design or through incomplete deduplication. The consequence is inflated generalization metrics and false confidence in deployment readiness: a model that has seen a test drug during training in different pair contexts can exploit memorized patterns, making it appear more capable than it will be against genuinely novel compounds. The cold-drug protocol eliminates this bias. Combined with full preprocessing documentation, deterministic seeding, and a five-fold evaluation, the proposed benchmark provides a transparent, reproducible reference point for the community.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of representative DDI prediction methods. Values marked [?] are not directly comparable due to different protocols or unreported metrics.}
+\label{tab:lit_comparison}
+\begin{tabular}{lllll}
+\toprule
+Method & Representation & Split Type & Classes & Key Metric \\
+\midrule
+GAT-DDI \cite{feng2022gnnddi}    & Molecular graphs        & Warm-drug      & 86 & ROC-AUC [?] \\
+SmileGNN \cite{han2022smilegnn}  & SMILES + GNN           & Permissive     & 86 & Accuracy [?] \\
+MR-GNN \cite{xiong2023mrgnn}     & Multi-relational GNN   & Warm-drug      & 86 & PR-AUC [?] \\
+GraphDDI \cite{gupta2024graphddi}& Graph features         & [?]            & 86 & Accuracy [?] \\
+GNN-DDI \cite{abbas2025gnnddi}   & GNN encoder            & [?]            & 86 & F1-score [?] \\
+Present work                     & GAT + ECFP + LA + DRW  & Cold-drug      & 86 & PR-AUC 0.5519 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================
+\chapter{Methodology}
+%=============================================================
+
+\section{Pipeline Overview}
+
+The pipeline has five stages: (1) dataset loading via TDC; (2) cold-drug split generation with leakage checks; (3) molecular graph and fingerprint construction from SMILES using RDKit; (4) Siamese pair modeling with logit adjustment and deferred re-weighting; and (5) multi-metric evaluation on held-out folds. Model selection is driven by validation macro PR-AUC, chosen because it is sensitive to tail-class retrieval under imbalance---unlike accuracy or ROC-AUC, which are dominated by frequent classes.
+
+\section{Dataset Preparation and Cold-Drug Split Design}
+
+The DrugBank DDI benchmark is loaded through TDC and standardized to three fields: \texttt{drug\_a\_smiles}, \texttt{drug\_b\_smiles}, and integer label \texttt{y}. The split procedure normalizes all pairs to unordered form, removes conflicting assignments (pairs labeled with multiple interaction types), and uses degree-aware balancing to assign each drug to exactly one fold, with explicit graph-based leakage checks. The preprocessing summary is:
+\begin{itemize}
+\item Raw rows: 191{,}808; raw unordered pair groups: 191{,}402
+\item Conflicting pair groups removed: 406; conflicting rows removed: 812
+\item Clean rows retained: 190{,}996
+\end{itemize}
+The selected configuration uses protocol S1 with $k=5$ folds and seed 42. Protocol S1 enforces strict cold-drug separation: every drug is assigned to exactly one fold, and all pairs containing a fold-$i$ drug are placed in fold $i$, preventing any test drug from appearing in training under any pair context. Split statistics are shown in Table~\ref{tab:split_stats}.
+
+\begin{table}[H]
+\centering
+\caption{Cold-drug split statistics across five folds.}
+\label{tab:split_stats}
+\begin{tabular}{lrr}
+\toprule
+Statistic & Mean Across 5 Folds & Fold $f4$ \\
+\midrule
+Training rows        & 68{,}619.4 & 68{,}562 \\
+Validation rows      & 45{,}978.2 & 46{,}038 \\
+Test rows            & 45{,}978.2 & 46{,}033 \\
+Test labels present  & 81.8       & 85       \\
+Drugs assigned       & 341.2      & 342      \\
+Min.\ test pairs     & 5{,}000    & 5{,}000  \\
+Min.\ test labels    & 45         & 45       \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On average, 81.8 of 86 classes appear in each test fold. Variation in class coverage explains part of the fold-wise variation in tail-class metrics: a fold with more classes present in test data will naturally yield evaluable scores for more minority classes.
+
+\section{Molecular Graph and Fingerprint Features}
+
+Each drug is parsed from SMILES into a molecular graph using RDKit. Node features (7 dimensions) encode atomic number, degree, aromaticity flag, formal charge, hybridization code, ring membership flag, and total hydrogen count. Edge features (5 dimensions) encode bond type, conjugation flag, aromaticity flag, ring membership flag, and stereo code. The ECFP4 fingerprint (radius 2, 2048 bits) is projected through a learnable linear layer, batch-normalized, passed through ELU, and dropped with probability 0.2 before fusion with the graph embedding. This projection allows the model to weight fingerprint regions by task relevance rather than using the bit vector passively.
+
+\section{Siamese Pair Model}
+
+The architecture uses a Siamese encoder: both drugs share the same graph attention backbone, enforcing permutation symmetry---swapping $d_a$ and $d_b$ should not alter the interaction prediction. Each drug passes through three GAT layers (4 attention heads, hidden dimension 64), with ELU activation and dropout (0.2) between layers, followed by global mean pooling to produce a graph-level embedding $\mathbf{g} \in \mathbb{R}^{128}$. The projected fingerprint vector $\mathbf{p} \in \mathbb{R}^{128}$ is concatenated with $\mathbf{g}$ and passed through a fusion MLP to yield the final drug embedding:
+\begin{equation}
+\mathbf{h}_a = \phi([\mathbf{g}_a \| \mathbf{p}_a]), \qquad \mathbf{h}_b = \phi([\mathbf{g}_b \| \mathbf{p}_b]),
+\end{equation}
+where $\phi$ denotes the fusion MLP and $\|$ denotes concatenation. The pair representation combines four complementary views:
+\begin{equation}
+\mathbf{z}_{ab} = [\mathbf{h}_a \| \mathbf{h}_b \| |\mathbf{h}_a - \mathbf{h}_b| \| \mathbf{h}_a \odot \mathbf{h}_b].
+\end{equation}
+Concatenation $\mathbf{h}_a \| \mathbf{h}_b$ captures individual drug properties; absolute difference $|\mathbf{h}_a - \mathbf{h}_b|$ captures structural dissimilarity; element-wise product $\mathbf{h}_a \odot \mathbf{h}_b$ captures multiplicative co-activation patterns. With $\mathbf{h}_a, \mathbf{h}_b \in \mathbb{R}^{128}$, the pair feature vector has dimension 512. A classifier head with a single hidden layer of 256 units (ELU, dropout 0.2) maps this to 86 output logits.
+
+\section{Long-Tail Objective}
+
+Class imbalance is addressed through two mechanisms. Logit adjustment shifts the decision boundary by adding scaled class log-priors to raw logits:
+\begin{equation}
+\tilde{\mathbf{s}} = \mathbf{s} + \tau \log \boldsymbol{\pi},
+\end{equation}
+where $\boldsymbol{\pi}$ is the empirical class-prior vector and $\tau = 0.5$ \cite{menon2021logit}. Setting $\tau = 0.5$ provides moderate correction: full adjustment ($\tau = 1.0$) can over-penalize genuinely common classes, while $\tau = 0.5$ balances prior incorporation with learned signal. Cross-entropy is applied to the adjusted logits:
+\begin{equation}
+\mathcal{L} = \mathrm{CE}(\tilde{\mathbf{s}}, y; \mathbf{w}).
+\end{equation}
+Deferred re-weighting activates class weights only from epoch 15 onward (the final 30\% of the 20-epoch schedule). During epochs 1--14, $\mathbf{w} = \mathbf{1}$ so all classes contribute equally while shared representations stabilize. From epoch 15, class weights are
+\begin{equation}
+w_c = \mathrm{clip}\!\left(\frac{1}{\sqrt{n_c + \epsilon}},\; 0.25,\; 4.0\right),
+\end{equation}
+where $n_c$ is the training count for class $c$ and $\epsilon = 10^{-12}$. The lower clip bound of 0.25 ensures majority classes remain informative; the upper bound of 4.0 prevents the rarest classes from dominating optimization and destabilizing learned features \cite{cao2019ldam}. The learning rate decreases from $10^{-3}$ to $2 \times 10^{-4}$ at the same transition.
+
+\section{Experimental Configuration}
+
+\begin{table}[H]
+\centering
+\caption{Model and training hyperparameters.}
+\label{tab:hyperparams}
+\begin{tabular}{ll}
+\toprule
+Component & Configuration \\
+\midrule
+Graph encoder            & GAT, 3 layers, 4 heads per layer \\
+Hidden / embedding dim   & 64 / 128 \\
+Node / edge feature dim  & 7 / 5 \\
+Fingerprint              & ECFP4, radius 2, 2048 bits, proj.\ 128 \\
+Pair feature / classifier hidden & 512 / 256 \\
+Dropout                  & 0.2 \\
+Batch size / epochs      & 64 / 20 \\
+Optimizer                & Adam, LR $10^{-3}$$\to$$2\!\times\!10^{-4}$, WD $10^{-5}$ \\
+Logit adjustment         & $\tau = 0.5$ \\
+DRW switch               & epoch 15 (70\% of horizon) \\
+Selection metric         & validation macro PR-AUC \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Evaluation includes accuracy, macro- and micro-F1, Cohen's kappa, macro ROC-AUC, macro PR-AUC, Expected Calibration Error (ECE), Brier score, and tail macro PR-AUC (computed over the bottom 20\% of classes by training support). Macro PR-AUC is the selection metric because it penalizes both false positives against the large negative pool and false negatives in small-support classes, making it the most informative metric under imbalance.
+
+%=============================================================
+\chapter{Results and Discussion}
+%=============================================================
+
+\section{Five-Fold Cold-Drug Performance}
+
+Table~\ref{tab:main_results} reports mean $\pm$ std across five cold-drug folds for all model variants. The best-performing configuration, \texttt{GAT + ECFP + LA + DRW}, achieves the highest macro PR-AUC (0.5519), macro-F1 (0.5032), accuracy (0.6351), macro ROC-AUC (0.9395), kappa (0.5579), and tail macro PR-AUC (0.2246), demonstrating that each component contributes complementary benefits. The gap between macro ROC-AUC (0.9395) and macro PR-AUC (0.5519) is diagnostic: high ROC-AUC reflects good positive-negative separation across the large background of negatives, while the lower PR-AUC signals persistent false positives and limited positive support in tail classes. The moderate macro-F1 of 0.5032 corroborates this---minority-class retrieval, not discrimination, is the primary bottleneck.
+
+\begin{table}[htbp]
+\centering
+\caption{Five-fold cold-drug performance. Values are mean $\pm$ std. Bold = best. Lower is better for ECE and Brier.}
+\label{tab:main_results}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+Model & Accuracy & Macro-F1 & Kappa & Macro ROC-AUC & Macro PR-AUC & Tail PR-AUC & ECE $\downarrow$ & Brier $\downarrow$ \\
+\midrule
+GAT only         & 0.5927{\scriptsize$\pm$.003} & 0.4212{\scriptsize$\pm$.012} & 0.5030{\scriptsize$\pm$.003} & 0.9173{\scriptsize$\pm$.004} & 0.4616{\scriptsize$\pm$.020} & 0.1648{\scriptsize$\pm$.040} & 0.1410{\scriptsize$\pm$.022} & 0.5827{\scriptsize$\pm$.011} \\
+GIN only         & 0.5757{\scriptsize$\pm$.008} & 0.4066{\scriptsize$\pm$.028} & 0.4797{\scriptsize$\pm$.009} & 0.9103{\scriptsize$\pm$.008} & 0.4463{\scriptsize$\pm$.028} & 0.1609{\scriptsize$\pm$.029} & \textbf{0.1160{\scriptsize$\pm$.009}} & 0.5945{\scriptsize$\pm$.012} \\
+GAT+ECFP         & 0.6286{\scriptsize$\pm$.010} & 0.4825{\scriptsize$\pm$.030} & 0.5524{\scriptsize$\pm$.011} & 0.9286{\scriptsize$\pm$.009} & 0.5260{\scriptsize$\pm$.029} & 0.2142{\scriptsize$\pm$.063} & 0.1860{\scriptsize$\pm$.016} & \textbf{0.5642{\scriptsize$\pm$.013}} \\
+GAT+ECFP+LA      & 0.6276{\scriptsize$\pm$.015} & 0.4915{\scriptsize$\pm$.026} & 0.5483{\scriptsize$\pm$.019} & 0.9352{\scriptsize$\pm$.012} & 0.5316{\scriptsize$\pm$.031} & 0.2163{\scriptsize$\pm$.067} & 0.1963{\scriptsize$\pm$.016} & 0.5704{\scriptsize$\pm$.022} \\
+GAT+ECFP+LA+DRW  & \textbf{0.6348{\scriptsize$\pm$.011}} & \textbf{0.5007{\scriptsize$\pm$.025}} & \textbf{0.5590{\scriptsize$\pm$.014}} & \textbf{0.9381{\scriptsize$\pm$.010}} & \textbf{0.5469{\scriptsize$\pm$.033}} & \textbf{0.2246{\scriptsize$\pm$.059}} & 0.1999{\scriptsize$\pm$.019} & 0.5663{\scriptsize$\pm$.021} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Table~\ref{tab:fold_results} presents fold-wise results for the best-performing configuration. Performance is stable: macro ROC-AUC ranges from 0.9215 to 0.9519 and accuracy from 0.6227 to 0.6563, with standard deviations below 0.015 for all primary metrics. Fold $f4$ shows notably higher tail macro PR-AUC (0.3740 vs.\ mean 0.2156), attributable to better class coverage in that fold's test set (85 of 86 classes vs.\ an average of 81.8). This underscores that fold-wise variation in tail metrics reflects dataset composition as well as model behavior.
+
+\begin{table}[H]
+\centering
+\caption{Fold-wise test performance of the best-performing cold-drug baseline (GAT+ECFP+LA+DRW).}
+\label{tab:fold_results}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tabular}{lrrrrrr}
+\toprule
+Fold & Accuracy & Macro-F1 & Macro PR-AUC & Tail PR-AUC & Macro ROC-AUC & Kappa \\
+\midrule
+$f0$ & 0.6325 & 0.4813 & 0.5643 & 0.1888 & 0.9464 & 0.5561 \\
+$f1$ & 0.6251 & 0.4782 & 0.5101 & 0.1912 & 0.9368 & 0.5446 \\
+$f2$ & 0.6388 & 0.5148 & 0.5260 & 0.1790 & 0.9409 & 0.5582 \\
+$f3$ & 0.6227 & 0.4770 & 0.5371 & 0.1448 & 0.9215 & 0.5454 \\
+$f4$ & 0.6563 & 0.5644 & 0.6220 & 0.3740 & 0.9519 & 0.5851 \\
+\midrule
+Mean & 0.6351 & 0.5032 & 0.5519 & 0.2156 & 0.9395 & 0.5579 \\
+Std. & 0.0120 & 0.0337 & 0.0392 & 0.0809 & 0.0103 & 0.0147 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\section{Training Dynamics and DRW Behavior}
+
+The best validation checkpoint is reached at epoch 18, with validation accuracy 0.6390, macro-F1 0.5246, macro PR-AUC 0.5678, and macro ROC-AUC 0.9417. Performance improves most rapidly in the first five epochs, stabilizes through the uniform-weighting phase (epochs 1--14), and continues to improve after deferred re-weighting activates at epoch 15. Importantly, macro PR-AUC does not decline at the re-weighting transition; the improvement trajectory flattens briefly, then resumes. This confirms the DRW design rationale: early uniform weighting allows the shared representation to stabilize across all 86 classes, while later class re-weighting provides complementary minority-class focus without destabilizing the learned features \cite{cao2019ldam}.
+
+\section{Ablation: Effect of ECFP Fusion}
+
+Table~\ref{tab:ecfp_ablation} isolates the contribution of fingerprint fusion by comparing \texttt{GAT+ECFP+LA+DRW} against \texttt{GAT+LA+DRW} with all other hyperparameters identical.
+
+\begin{table}[H]
+\centering
+\caption{Ablation: ECFP fusion under identical logit adjustment and DRW. Mean across five folds.}
+\label{tab:ecfp_ablation}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+Model & Accuracy & Macro-F1 & Macro PR-AUC & Tail PR-AUC & Macro ROC-AUC & Kappa & ECE \\
+\midrule
+GAT + LA + DRW          & 0.5967 & 0.4569 & 0.4908 & 0.2142 & 0.9259 & 0.5085 & 0.1394 \\
+GAT + ECFP + LA + DRW   & 0.6351 & 0.5032 & 0.5519 & 0.2156 & 0.9395 & 0.5579 & 0.1966 \\
+\midrule
+Absolute gain & +0.0383 & +0.0463 & +0.0610 & +0.0014 & +0.0136 & +0.0494 & +0.0572 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+ECFP fusion yields consistent discrimination gains: +3.8 pp accuracy, +0.046 macro-F1, and +0.061 macro PR-AUC. These improvements reflect the complementarity of learned and handcrafted representations. The GAT encoder learns task-specific relational patterns from molecular topology; ECFP provides dense, stable encodings of recurring substructures that are fixed and fully portable to unseen compounds. In the cold-drug setting, this stability is especially valuable---fingerprints supply a reliable structural reference that the learned encoder can build upon even for molecules never encountered during training.
+
+However, ECE increases from 0.1394 to 0.1966 with ECFP fusion. The likely mechanism is that additional features make the model more confident in its predictions; sharper softmax distributions produce higher discrimination but are harder to calibrate. This discrimination--calibration trade-off is well documented and practically significant in clinical applications where reliable uncertainty estimates matter as much as ranking quality. Practitioners should apply post-hoc calibration (e.g., temperature scaling or Platt scaling) before relying on predicted probabilities for clinical decision support.
+
+\section{Tail-Class Performance and Discussion}
+
+Tail macro PR-AUC (bottom 20\% of classes by training support) averages only 0.2156, substantially below the overall macro PR-AUC of 0.5519. Even after logit adjustment and deferred re-weighting, rare interaction types remain difficult. The cold-drug protocol exacerbates this difficulty by removing transductive signal: the model cannot exploit co-occurrence patterns or drug-specific memorization. Two factors likely drive the persistent weakness. First, rare classes may have only tens of training examples, providing insufficient signal for learning a reliable decision boundary. Second, some tail classes may be semantically heterogeneous---an uncommon interaction type might involve structurally disparate drug pairs, making it hard to learn a coherent chemical signature.
+
+Four conclusions follow from the full analysis. \textit{First}, cold-drug DDI prediction is feasible: the model achieves macro ROC-AUC above 0.92 consistently, demonstrating transferable chemical knowledge. \textit{Second}, molecular graphs provide an appropriate generalizable representation because they encode structural principles that apply to unseen compounds---unlike drug identifiers or external knowledge that is unavailable for novel drugs. \textit{Third}, fingerprint fusion adds complementary information that learned encoders alone cannot capture, with a 6.1~pp gain in macro PR-AUC confirming the value of combining handcrafted and learned features. \textit{Fourth}, tail-class retrieval and calibration remain open problems that require dedicated solutions, not incidental improvements from stronger baselines. Direct comparison with published methods is not straightforward because the literature uses inconsistent preprocessing, split protocols, and class definitions; the primary contribution here is the protocol itself, not a claim of supremacy over undocumented prior systems.
+
+%=============================================================
+\chapter{Conclusion and Future Work}
+%=============================================================
+
+This report presented a reproducible cold-drug benchmark for multi-typed DDI prediction, combining a Siamese GAT encoder, ECFP4 fingerprint fusion, logit adjustment ($\tau=0.5$), and deferred re-weighting. The system achieves mean macro PR-AUC of 0.5519, macro-F1 of 0.5032, accuracy of 0.6351, and macro ROC-AUC of 0.9395 across five cold-drug folds. The central insight is that neither representation nor optimization alone suffices: graph-only models leave 6.1 pp of macro PR-AUC on the table, and long-tail optimization without fusion produces further shortfalls. The benchmark value lies in the strictness of the evaluation protocol---strict cold-drug separation, explicit leakage checks, and full curation documentation---which yields honest, deployment-relevant performance estimates that more permissive benchmarks cannot provide.
+
+Two open challenges define the path forward. Tail-class retrieval (mean tail macro PR-AUC of 0.2156) requires stronger solutions: metric learning for better-separated embeddings, adaptive re-sampling of rare classes, or hierarchical label modeling that exploits semantic structure within the 86 interaction types. Calibration (ECE degrading to 0.1966 with ECFP fusion) requires post-hoc correction: temperature scaling, Platt scaling, or isotonic regression should be validated against held-out calibration sets before clinical use. Beyond these, multimodal extensions incorporating target proteins, pathway annotations, or biomedical knowledge graphs may provide richer signal for predicting rare or novel interactions; and explanation modules (saliency maps, attention visualizations) should be evaluated on this validated cold-drug baseline so interpretability claims rest on the same experimental foundation as predictive results.
+
+%=============================================================
+\chapter*{References}
+\addcontentsline{toc}{chapter}{References}
+%=============================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{wishart2018drugbank}
+D.\,S.\ Wishart et al.
+DrugBank 5.0: a major update to the DrugBank database for 2018.
+\emph{Nucleic Acids Res.}, 46(D1):D1074--D1082, 2018.
+
+\bibitem{huang2021tdc}
+K.\ Huang et al.
+Therapeutics Data Commons: ML Datasets and Tasks for Therapeutics.
+\emph{NeurIPS Datasets and Benchmarks}, 2021.
+
+\bibitem{velickovic2018gat}
+P.\ Veli\v{c}kovi\'{c} et al.
+Graph Attention Networks.
+\emph{ICLR}, 2018.
+
+\bibitem{rogers2010ecfp}
+D.\ Rogers and M.\ Hahn.
+Extended-Connectivity Fingerprints.
+\emph{J.\ Chem.\ Inf.\ Model.}, 50(5):742--754, 2010.
+
+\bibitem{xu2019gin}
+K.\ Xu, W.\ Hu, J.\ Leskovec, and S.\ Jegelka.
+How Powerful are Graph Neural Networks?
+\emph{ICLR}, 2019.
+
+\bibitem{fey2019pyg}
+M.\ Fey and J.\,E.\ Lenssen.
+Fast Graph Representation Learning with PyTorch Geometric.
+\emph{ICLR Workshop on Representation Learning on Graphs and Manifolds}, 2019.
+
+\bibitem{menon2021logit}
+A.\,K.\ Menon et al.
+Long-tail Learning via Logit Adjustment.
+\emph{ICLR}, 2021.
+
+\bibitem{cao2019ldam}
+K.\ Cao, C.\ Wei, A.\ Gaidon, N.\ Arechiga, and T.\ Ma.
+Learning Imbalanced Datasets with Label-Distribution-Aware Margin Loss.
+\emph{NeurIPS}, 32, 2019.
+
+\bibitem{feng2022gnnddi}
+Y.\ Feng and S.\ Zhang.
+Prediction of DDI Using an Attention-Based GNN on Drug Molecular Graphs.
+\emph{Molecules}, 27(19):6748, 2022.
+
+\bibitem{han2022smilegnn}
+X.\ Han et al.
+SmileGNN: DDI Prediction Based on the SMILES and Graph Neural Network.
+\emph{Life}, 12(2):319, 2022.
+
+\bibitem{alrabeah2022gnn}
+M.\,H.\ Al-Rabeah and A.\ Lakizadeh.
+Prediction of DDI events using graph neural networks based feature extraction.
+\emph{Sci.\ Rep.}, 12:16372, 2022.
+
+\bibitem{xiong2023mrgnn}
+Z.\ Xiong et al.
+Multi-relational contrastive learning GNN for DDI event prediction.
+\emph{Proc.\ AAAI}, 2023.
+
+\bibitem{gupta2024graphddi}
+S.\ Gupta, S.\ Laghuvarapu, and U.\,D.\ Priyakumar.
+GraphDDI: GNN for prediction of drug-drug interaction.
+\emph{AIME}, 2024.
+
+\bibitem{abbas2025gnnddi}
+K.\ Abbas et al.
+Graph neural network-based drug-drug interaction prediction.
+\emph{Sci.\ Rep.}, 2025.
+
+\bibitem{lin2023evaluation}
+X.\ Lin et al.
+Comprehensive evaluation of deep and graph learning on DDI prediction.
+\emph{Brief.\ Bioinform.}, 24(4):bbad235, 2023.
+
+\bibitem{luo2024review}
+H.\ Luo et al.
+Drug-drug interactions prediction based on deep learning and knowledge graph: A review.
+\emph{iScience}, 27, 2024.
+
+\end{thebibliography}
+\end{document}

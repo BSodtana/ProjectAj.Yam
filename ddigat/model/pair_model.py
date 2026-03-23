@@ -8,7 +8,7 @@ from ddigat.model.gnn_encoders import build_encoder
 
 
 class DDIPairModel(nn.Module):
-    """Siamese GAT encoder + pairwise MLP head for multi-class DDI prediction."""
+    """Siamese GNN encoder + permutation-invariant pairwise MLP head for DDI prediction."""
 
     def __init__(
         self,
@@ -35,17 +35,21 @@ class DDIPairModel(nn.Module):
     ) -> None:
         super().__init__()
         self.encoder_type = encoder_type.lower().strip()
-        self.encoder = build_encoder(
-            encoder_type=self.encoder_type,
-            in_dim=in_dim,
-            edge_dim=edge_dim,
-            hidden_dim=hidden_dim,
-            out_dim=out_dim,
-            num_layers=num_layers,
-            heads=heads,
-            dropout=dropout,
-            pooling=pooling,
-        )
+        self.is_feature_only = self.encoder_type == "mlp"
+        if self.is_feature_only:
+            self.encoder = None
+        else:
+            self.encoder = build_encoder(
+                encoder_type=self.encoder_type,
+                in_dim=in_dim,
+                edge_dim=edge_dim,
+                hidden_dim=hidden_dim,
+                out_dim=out_dim,
+                num_layers=num_layers,
+                heads=heads,
+                dropout=dropout,
+                pooling=pooling,
+            )
 
         self.use_ecfp_features = bool(use_ecfp_features)
         self.use_physchem_features = bool(use_physchem_features)
@@ -104,7 +108,11 @@ class DDIPairModel(nn.Module):
 
         self.feature_dim = int(offset)
         has_feature_pathways = self.feature_dim > 0
-        drug_input_dim = int(out_dim)
+        if self.is_feature_only and not has_feature_pathways:
+            raise ValueError("encoder_type='mlp' requires at least one enabled drug feature pathway.")
+
+        graph_input_dim = 0 if self.is_feature_only else int(out_dim)
+        drug_input_dim = graph_input_dim
         if self.use_ecfp_features:
             drug_input_dim += self.ecfp_proj_dim
         if self.use_physchem_features:
@@ -136,33 +144,79 @@ class DDIPairModel(nn.Module):
 
     @staticmethod
     def build_pair_features(h_a: torch.Tensor, h_b: torch.Tensor) -> torch.Tensor:
-        return torch.cat([h_a, h_b, torch.abs(h_a - h_b), h_a * h_b], dim=-1)
+        # Use an explicit symmetric pair representation so swapping drug order
+        # leaves z_ab unchanged. The first two blocks are an elementwise sorted
+        # view of the pair; the latter two retain relative/interaction signals.
+        h_lo = torch.minimum(h_a, h_b)
+        h_hi = torch.maximum(h_a, h_b)
+        return torch.cat([h_lo, h_hi, h_hi - h_lo, h_a * h_b], dim=-1)
 
-    def _prepare_feature_tensor(self, h_gnn: torch.Tensor, feat: torch.Tensor | None) -> torch.Tensor:
+    def _infer_batch_size(self, graph, feat: torch.Tensor | None) -> int:
+        if feat is not None:
+            if feat.dim() != 2:
+                raise ValueError(f"Expected feat tensor with shape [B, D], got {tuple(feat.shape)}")
+            return int(feat.size(0))
+        batch = getattr(graph, "batch", None)
+        if batch is not None and int(batch.numel()) > 0:
+            return int(batch.max().item()) + 1
+        return 1
+
+    def _prepare_feature_tensor(
+        self,
+        feat: torch.Tensor | None,
+        *,
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
         if self.feature_dim <= 0:
-            return torch.empty((h_gnn.size(0), 0), dtype=h_gnn.dtype, device=h_gnn.device)
+            return torch.empty((batch_size, 0), dtype=dtype, device=device)
         if feat is None:
-            return torch.zeros((h_gnn.size(0), self.feature_dim), dtype=h_gnn.dtype, device=h_gnn.device)
-        if feat.dim() != 2:
-            raise ValueError(f"Expected feat tensor with shape [B, D], got {tuple(feat.shape)}")
-        if int(feat.size(0)) != int(h_gnn.size(0)):
-            raise ValueError(f"Feature batch size {feat.size(0)} does not match graph batch size {h_gnn.size(0)}")
+            return torch.zeros((batch_size, self.feature_dim), dtype=dtype, device=device)
         if int(feat.size(1)) != int(self.feature_dim):
             raise ValueError(f"Feature dim mismatch: expected {self.feature_dim}, got {int(feat.size(1))}")
-        return feat.to(device=h_gnn.device, dtype=h_gnn.dtype)
+        if int(feat.size(0)) != int(batch_size):
+            raise ValueError(f"Feature batch size {feat.size(0)} does not match expected batch size {batch_size}")
+        return feat.to(device=device, dtype=dtype)
 
-    def build_drug_embedding(self, h_gnn: torch.Tensor, feat: torch.Tensor | None = None) -> torch.Tensor:
+    def build_drug_embedding(
+        self,
+        h_gnn: torch.Tensor | None,
+        feat: torch.Tensor | None = None,
+        graph=None,
+    ) -> torch.Tensor:
+        param = next(self.parameters())
+        if h_gnn is not None:
+            batch_size = int(h_gnn.size(0))
+            device = h_gnn.device
+            dtype = h_gnn.dtype
+        else:
+            batch_size = self._infer_batch_size(graph=graph, feat=feat)
+            device = param.device
+            dtype = param.dtype
+
         if self.feature_dim <= 0:
+            if h_gnn is None:
+                raise ValueError("Feature-only mode requires at least one feature pathway.")
             return h_gnn
 
-        feat_batch = self._prepare_feature_tensor(h_gnn=h_gnn, feat=feat)
-        parts = [h_gnn]
+        feat_batch = self._prepare_feature_tensor(
+            feat=feat,
+            batch_size=batch_size,
+            device=device,
+            dtype=dtype,
+        )
+        parts = []
+        if h_gnn is not None:
+            parts.append(h_gnn)
         if self.use_ecfp_features and self.proj_ecfp is not None:
             parts.append(self.proj_ecfp(feat_batch[:, self._feature_slices["ecfp"]]))
         if self.use_physchem_features and self.proj_physchem is not None:
             parts.append(self.proj_physchem(feat_batch[:, self._feature_slices["physchem"]]))
         if self.use_maccs_features and self.proj_maccs is not None:
             parts.append(self.proj_maccs(feat_batch[:, self._feature_slices["maccs"]]))
+        if not parts:
+            raise ValueError("No inputs available to build drug embedding.")
         fused = torch.cat(parts, dim=-1)
         if self.drug_fusion is None:
             return fused
@@ -175,10 +229,14 @@ class DDIPairModel(nn.Module):
         feat_a: torch.Tensor | None = None,
         feat_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        h_a, _ = self.encoder.encode(graph_a, return_attention=False)
-        h_b, _ = self.encoder.encode(graph_b, return_attention=False)
-        h_a = self.build_drug_embedding(h_a, feat=feat_a)
-        h_b = self.build_drug_embedding(h_b, feat=feat_b)
+        if self.is_feature_only:
+            h_a = self.build_drug_embedding(None, feat=feat_a, graph=graph_a)
+            h_b = self.build_drug_embedding(None, feat=feat_b, graph=graph_b)
+        else:
+            h_a, _ = self.encoder.encode(graph_a, return_attention=False)
+            h_b, _ = self.encoder.encode(graph_b, return_attention=False)
+            h_a = self.build_drug_embedding(h_a, feat=feat_a, graph=graph_a)
+            h_b = self.build_drug_embedding(h_b, feat=feat_b, graph=graph_b)
         pair = self.build_pair_features(h_a, h_b)
         return self.classifier(pair)
 
@@ -189,10 +247,16 @@ class DDIPairModel(nn.Module):
         feat_a: torch.Tensor | None = None,
         feat_b: torch.Tensor | None = None,
     ):
-        h_a, attn_a = self.encoder.encode(graph_a, return_attention=True)
-        h_b, attn_b = self.encoder.encode(graph_b, return_attention=True)
-        h_a = self.build_drug_embedding(h_a, feat=feat_a)
-        h_b = self.build_drug_embedding(h_b, feat=feat_b)
+        if self.is_feature_only:
+            h_a = self.build_drug_embedding(None, feat=feat_a, graph=graph_a)
+            h_b = self.build_drug_embedding(None, feat=feat_b, graph=graph_b)
+            attn_a = None
+            attn_b = None
+        else:
+            h_a, attn_a = self.encoder.encode(graph_a, return_attention=True)
+            h_b, attn_b = self.encoder.encode(graph_b, return_attention=True)
+            h_a = self.build_drug_embedding(h_a, feat=feat_a, graph=graph_a)
+            h_b = self.build_drug_embedding(h_b, feat=feat_b, graph=graph_b)
         pair = self.build_pair_features(h_a, h_b)
         logits = self.classifier(pair)
         return logits, {"A": attn_a, "B": attn_b}
@@ -223,9 +287,7 @@ class DDIPairModel(nn.Module):
                 raise ValueError("class_weights contains non-finite values")
             if not bool((w > 0).all().item()):
                 raise ValueError("class_weights must be strictly positive")
-            self.class_weights = w
-        else:
-            self.class_weights = None
+        self.set_class_weights(class_weights)
         self.label_smoothing = float(label_smoothing)
         self.logit_adjust_tau = float(logit_adjust_tau)
         if logit_adjust_log_pi is not None:
@@ -237,6 +299,22 @@ class DDIPairModel(nn.Module):
             self.logit_adjust_log_pi = log_pi
         else:
             self.logit_adjust_log_pi = None
+
+    def set_class_weights(self, class_weights: torch.Tensor | None = None) -> None:
+        """Update class weights used by loss_fn without touching other loss params."""
+        if class_weights is None:
+            self.class_weights = None
+            return
+        w = class_weights.detach().float().clone().reshape(-1)
+        if int(w.numel()) != int(self.num_classes):
+            raise ValueError(f"class_weights must have shape ({self.num_classes},), got {tuple(w.shape)}")
+        if not torch.isfinite(w).all().item():
+            raise ValueError("class_weights contains non-finite values")
+        if not bool((w >= 0).all().item()):
+            raise ValueError("class_weights must be non-negative")
+        if not bool((w > 0).any().item()):
+            raise ValueError("class_weights must contain at least one positive value")
+        self.class_weights = w
 
     def adjust_logits(self, logits: torch.Tensor) -> torch.Tensor:
         if abs(float(self.logit_adjust_tau)) <= 0.0 or self.logit_adjust_log_pi is None:

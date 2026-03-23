@@ -1,0 +1,148 @@
+<svg width="1280" height="1240" viewBox="0 0 1280 1240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="1240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F3E8"/>
+      <stop offset="1" stop-color="#FFFDFC"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFF9F0"/>
+    </linearGradient>
+    <linearGradient id="accentA" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="accentB" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#C2410C"/>
+      <stop offset="1" stop-color="#FB923C"/>
+    </linearGradient>
+    <linearGradient id="accentC" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#7C6F64" flood-opacity="0.15"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0 0L14 7L0 14V0Z" fill="#7C6F64"/>
+    </marker>
+    <style>
+      .title { font: 700 34px Georgia, 'Times New Roman', serif; fill: #1F2937; }
+      .subtitle { font: 400 18px Arial, Helvetica, sans-serif; fill: #4B5563; }
+      .panelTitle { font: 700 22px Georgia, 'Times New Roman', serif; fill: #111827; }
+      .panelMeta { font: 600 13px Arial, Helvetica, sans-serif; fill: #0F172A; letter-spacing: 0.08em; }
+      .body { font: 400 15px Arial, Helvetica, sans-serif; fill: #374151; }
+      .small { font: 400 13px Arial, Helvetica, sans-serif; fill: #4B5563; }
+      .formula { font: 600 17px 'Courier New', monospace; fill: #111827; }
+      .shape { font: 700 14px Arial, Helvetica, sans-serif; fill: #7C2D12; }
+      .chip { font: 700 12px Arial, Helvetica, sans-serif; fill: #FFFFFF; letter-spacing: 0.08em; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="1240" fill="url(#bg)"/>
+
+  <text x="56" y="70" class="title">GATEncoder In This Project</text>
+  <text x="56" y="100" class="subtitle">Research-style view of the real implementation in ddigat/model/gnn_encoders.py</text>
+
+  <rect x="56" y="128" width="1168" height="132" rx="28" fill="#FFF7ED" stroke="#FDBA74" stroke-width="2"/>
+  <text x="82" y="168" class="panelMeta">INPUT GRAPH</text>
+  <text x="82" y="202" class="body">SMILES is converted to a PyG graph with atom features x and bond features edge_attr. Self-loops are added inside each GATConv layer.</text>
+  <rect x="82" y="214" width="184" height="28" rx="14" fill="url(#accentA)"/>
+  <text x="104" y="233" class="chip">x: [N, 7] atom features</text>
+  <rect x="281" y="214" width="194" height="28" rx="14" fill="url(#accentB)"/>
+  <text x="303" y="233" class="chip">edge_attr: [E, 5]</text>
+  <rect x="490" y="214" width="198" height="28" rx="14" fill="url(#accentC)"/>
+  <text x="512" y="233" class="chip">batch: graph ids</text>
+
+  <g filter="url(#shadow)">
+    <rect x="56" y="298" width="556" height="454" rx="30" fill="url(#panel)" stroke="#99F6E4" stroke-width="2"/>
+  </g>
+  <rect x="82" y="322" width="136" height="32" rx="16" fill="url(#accentA)"/>
+  <text x="110" y="343" class="chip">LAYER 1</text>
+  <text x="82" y="394" class="panelTitle">First attention layer</text>
+  <text x="82" y="420" class="small">GATConv(in=7, out=64, heads=4, concat=True)</text>
+
+  <rect x="82" y="446" width="504" height="68" rx="18" fill="#F0FDFA" stroke="#99F6E4"/>
+  <text x="102" y="473" class="body">1. Project every atom into each head space</text>
+  <text x="102" y="498" class="formula">z_i^h = W^h x_i</text>
+
+  <rect x="82" y="528" width="504" height="86" rx="18" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text x="102" y="555" class="body">2. Score each incoming edge with node + bond context</text>
+  <text x="102" y="580" class="formula">e_ij^h = LeakyReLU(a_s z_i^h + a_t z_j^h + a_e W_e edge_ij)</text>
+  <text x="102" y="600" class="small">edge_dim=5 means bond features directly shape attention.</text>
+
+  <rect x="82" y="628" width="504" height="78" rx="18" fill="#EFF6FF" stroke="#93C5FD"/>
+  <text x="102" y="655" class="body">3. Normalize over neighbors of target node i</text>
+  <text x="102" y="684" class="formula">alpha_ij^h = softmax_j(e_ij^h)</text>
+
+  <rect x="82" y="718" width="504" height="74" rx="18" fill="#FDF2F8" stroke="#F9A8D4"/>
+  <text x="102" y="745" class="body">4. Weighted message passing, per head</text>
+  <text x="102" y="772" class="formula">m_i^h = sum_j alpha_ij^h z_j^h</text>
+
+  <text x="82" y="826" class="shape">Output after concat + ELU + dropout: [N, 64 x 4] = [N, 256]</text>
+
+  <g filter="url(#shadow)">
+    <rect x="668" y="298" width="556" height="454" rx="30" fill="url(#panel)" stroke="#FCD34D" stroke-width="2"/>
+  </g>
+  <rect x="694" y="322" width="136" height="32" rx="16" fill="url(#accentB)"/>
+  <text x="722" y="343" class="chip">LAYER 2</text>
+  <text x="694" y="394" class="panelTitle">Hidden attention layer</text>
+  <text x="694" y="420" class="small">GATConv(in=256, out=64, heads=4, concat=True)</text>
+
+  <rect x="694" y="446" width="504" height="68" rx="18" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text x="714" y="473" class="body">1. Consume the contextualized hidden state from layer 1</text>
+  <text x="714" y="498" class="formula">H^(1) in R^(N x 256)</text>
+
+  <rect x="694" y="528" width="504" height="86" rx="18" fill="#FFFBEB" stroke="#FCD34D"/>
+  <text x="714" y="555" class="body">2. Recompute attention with a richer structural signal</text>
+  <text x="714" y="580" class="formula">alpha_ij^(2,h) = softmax_j(LeakyReLU(...))</text>
+  <text x="714" y="600" class="small">One message-passing round already happened, so neighborhoods are more informative.</text>
+
+  <rect x="694" y="628" width="504" height="78" rx="18" fill="#F0FDFA" stroke="#99F6E4"/>
+  <text x="714" y="655" class="body">3. Heads can focus on different motif types or atom roles</text>
+  <text x="714" y="684" class="formula">m_i^(2,h) = sum_j alpha_ij^(2,h) H_j^(1,h)</text>
+
+  <rect x="694" y="718" width="504" height="74" rx="18" fill="#EEF2FF" stroke="#A5B4FC"/>
+  <text x="714" y="745" class="body">4. Concatenate heads again, then ELU + dropout</text>
+  <text x="714" y="772" class="formula">H^(2) = concat_h(m_i^(2,h))</text>
+
+  <text x="694" y="826" class="shape">Output after concat + ELU + dropout: [N, 256]</text>
+
+  <path d="M640 792V834" stroke="#7C6F64" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="56" y="802" width="1168" height="292" rx="30" fill="url(#panel)" stroke="#93C5FD" stroke-width="2"/>
+  </g>
+  <rect x="82" y="826" width="170" height="32" rx="16" fill="url(#accentC)"/>
+  <text x="107" y="847" class="chip">FINAL LAYER</text>
+  <text x="82" y="898" class="panelTitle">Final attention layer + graph readout</text>
+  <text x="82" y="924" class="small">GATConv(in=256, out=128, heads=4, concat=False)</text>
+
+  <rect x="82" y="948" width="532" height="74" rx="18" fill="#EFF6FF" stroke="#93C5FD"/>
+  <text x="102" y="975" class="body">1. Final-layer attention is computed exactly the same way</text>
+  <text x="102" y="1002" class="formula">alpha_ij^(3,h) = softmax_j(e_ij^(3,h))</text>
+
+  <rect x="82" y="1034" width="532" height="74" rx="18" fill="#F0FDFA" stroke="#99F6E4"/>
+  <text x="102" y="1061" class="body">2. Heads are merged instead of concatenated</text>
+  <text x="102" y="1088" class="formula">H^(3) in R^(N x 128)</text>
+
+  <rect x="640" y="948" width="558" height="74" rx="18" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text x="660" y="975" class="body">3. No ELU and no dropout after the last layer</text>
+  <text x="660" y="1002" class="formula">node_embeddings = H^(3)</text>
+
+  <rect x="640" y="1034" width="558" height="74" rx="18" fill="#FDF2F8" stroke="#F9A8D4"/>
+  <text x="660" y="1061" class="body">4. Pool node embeddings to one vector per molecule</text>
+  <text x="660" y="1088" class="formula">graph_emb = global_mean_pool(H^(3), batch) -> [B, 128]</text>
+
+  <text x="82" y="1136" class="shape">Only this final layer exports attention when return_attention=True: edge_index, alpha, node_embeddings, node_input_embeddings, src_message_embeddings.</text>
+
+  <g>
+    <rect x="56" y="1120" width="1168" height="84" rx="24" fill="#111827"/>
+    <text x="82" y="1154" style="font:700 17px Arial, Helvetica, sans-serif; fill:#F9FAFB;">How this feeds the rest of the model</text>
+    <text x="82" y="1178" style="font:400 15px Arial, Helvetica, sans-serif; fill:#D1D5DB;">
+      The 128-d graph embedding from each drug is fused with optional ECFP / physchem / MACCS features, then the pair model forms
+    </text>
+    <text x="82" y="1198" style="font:600 16px 'Courier New', monospace; fill:#FDE68A;">[h_a, h_b, |h_a-h_b|, h_a*h_b]</text>
+    <text x="340" y="1198" style="font:400 15px Arial, Helvetica, sans-serif; fill:#D1D5DB;">before the final 86-class classifier.</text>
+  </g>
+</svg>

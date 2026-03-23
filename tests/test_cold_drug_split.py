@@ -19,6 +19,10 @@ def _pair_keys(df: pd.DataFrame) -> set[tuple[str, str]]:
     return out
 
 
+def _drug_set(df: pd.DataFrame) -> set[str]:
+    return set(df["drug_a_smiles"].astype(str).tolist()).union(set(df["drug_b_smiles"].astype(str).tolist()))
+
+
 def _build_small_df() -> pd.DataFrame:
     rows = [
         {"drug_a_smiles": "B", "drug_b_smiles": "A", "y": 1},
@@ -115,6 +119,33 @@ class ColdDrugSplitTest(unittest.TestCase):
         all_keys = train_keys | valid_keys | test_keys
         self.assertNotIn(("D00", "D01"), all_keys)
         self.assertIn("summary", report)
+
+    def test_s1_split_is_strict_cold_drug_disjoint_by_drug_identity(self) -> None:
+        df = _build_dense_df()
+        train_df, valid_df, test_df, _ = _make_cold_drug_split_v3(
+            full_df=df,
+            seed=42,
+            k=5,
+            fold_idx=0,
+            protocol="s1",
+            min_test_pairs=1,
+            min_test_labels=1,
+            max_resamples=20,
+            dedupe_policy="keep_all",
+            num_classes=6,
+            selection_objective="selected_fold",
+        )
+        train_drugs = _drug_set(train_df)
+        for split_df in [train_df, valid_df, test_df]:
+            for row in split_df[["drug_a_smiles", "drug_b_smiles"]].itertuples(index=False):
+                a = str(row[0])
+                b = str(row[1])
+                unseen_vs_train = int(a not in train_drugs) + int(b not in train_drugs)
+                if split_df is train_df:
+                    self.assertEqual(unseen_vs_train, 0)
+                else:
+                    # Strict S1 protocol: valid/test pairs contain exactly one unseen drug.
+                    self.assertEqual(unseen_vs_train, 1)
 
     def test_keep_first_collapses_duplicates(self) -> None:
         df = _build_dense_df()
